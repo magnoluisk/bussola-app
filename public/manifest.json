@@ -1,0 +1,10 @@
+{
+  "name": "Bússola — Educação Financeira e de Investimentos",
+  "short_name": "Bússola",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#14291F",
+  "theme_color": "#14291F",
+  "orientation": "portrait",
+  "icons": []
+}
