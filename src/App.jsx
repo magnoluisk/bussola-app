@@ -7,7 +7,7 @@ import BussolaEducacaoDeInvestimentos from "./apps/BussolaEducacaoDeInvestimento
 // Troque a senha aqui antes de mandar o link pros seus testadores.
 // Não é criptografia militar, é só um filtro pra impedir acesso casual
 // de quem não recebeu o link com essa senha de você.
-const SITE_PASSWORD = "bussola2026";
+const SITE_PASSWORD = "fase2segura2026";
 
 function PasswordGate({ children }) {
   const [unlocked, setUnlocked] = useState(false);
