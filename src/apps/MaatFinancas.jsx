@@ -1097,6 +1097,10 @@ export default function BussolaEducacaoDeInvestimentos() {
   const [despesaTab, setDespesaTab] = useState("fixo");
   const [editingGastoId, setEditingGastoId] = useState(null);
   const [editingGastoValor, setEditingGastoValor] = useState("");
+  const [editingGastoNome, setEditingGastoNome] = useState("");
+  const [editingRendaId, setEditingRendaId] = useState(null);
+  const [editingRendaNome, setEditingRendaNome] = useState("");
+  const [editingRendaValor, setEditingRendaValor] = useState("");
   const totalCustosVariaveis = gastosVariaveis.filter((g) => g.tipo === "variavel").reduce((sum, g) => sum + g.valor, 0);
   const totalCustosExtras = gastosVariaveis.filter((g) => g.tipo === "extra").reduce((sum, g) => sum + g.valor, 0);
 
@@ -2419,10 +2423,46 @@ export default function BussolaEducacaoDeInvestimentos() {
 
               <div className="space-y-1.5 mb-2">
                 {grupo.itens.map((item) => (
-                  <div key={item.id} className="flex items-center justify-between text-xs px-3 py-1.5 rounded-sm" style={{ border: "1px solid rgba(237,230,214,0.12)" }}>
-                    <span style={{ color: "var(--paper)" }}>{item.nome}</span>
-                    <div className="flex items-center gap-2">
-                      <span style={{ color: "var(--paper-dim)", fontFamily: "'JetBrains Mono', monospace" }}>R$ {item.valor.toLocaleString("pt-BR")}</span>
+                  <div key={item.id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1.5 text-xs px-3 py-1.5 rounded-sm" style={{ border: "1px solid rgba(237,230,214,0.12)" }}>
+                    {editingRendaId === item.id ? (
+                      <input
+                        type="text" autoFocus value={editingRendaNome}
+                        onChange={(e) => setEditingRendaNome(e.target.value)}
+                        className="flex-1 text-xs px-1.5 py-1 rounded-sm bg-transparent outline-none"
+                        style={{ border: "1px solid var(--gold)", color: "var(--paper)" }}
+                      />
+                    ) : (
+                      <span style={{ color: "var(--paper)" }}>{item.nome}</span>
+                    )}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {editingRendaId === item.id ? (
+                        <>
+                          <div className="flex items-center gap-1 px-1.5 py-1 rounded-sm" style={{ background: "var(--ink)", border: "1px solid var(--gold)" }}>
+                            <span className="text-xs" style={{ color: "var(--paper-dim)", fontFamily: "'JetBrains Mono', monospace" }}>R$</span>
+                            <input
+                              type="number" min="0" value={editingRendaValor}
+                              onChange={(e) => setEditingRendaValor(e.target.value)}
+                              className="w-16 text-xs bg-transparent outline-none"
+                              style={{ color: "var(--paper)", fontFamily: "'JetBrains Mono', monospace" }}
+                            />
+                          </div>
+                          <button
+                            onClick={() => {
+                              grupo.setItens((prev) => prev.map((x) => (x.id === item.id ? { ...x, valor: Number(editingRendaValor) || x.valor, nome: editingRendaNome.trim() || x.nome } : x)));
+                              setEditingRendaId(null);
+                            }}
+                          >
+                            <Check size={14} color="var(--gold)" />
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <span style={{ color: "var(--paper-dim)", fontFamily: "'JetBrains Mono', monospace" }}>R$ {item.valor.toLocaleString("pt-BR")}</span>
+                          <button onClick={() => { setEditingRendaId(item.id); setEditingRendaValor(String(item.valor)); setEditingRendaNome(item.nome); }} title="Editar nome e valor">
+                            <Pencil size={11} color="var(--paper-dim)" />
+                          </button>
+                        </>
+                      )}
                       <button onClick={() => grupo.setItens((prev) => prev.filter((x) => x.id !== item.id))}><Trash2 size={12} color="var(--paper-dim)" /></button>
                     </div>
                   </div>
@@ -2788,14 +2828,23 @@ export default function BussolaEducacaoDeInvestimentos() {
           <div className="space-y-1.5 mb-2">
             {gastosVariaveis.filter((g) => g.tipo === "variavel").map((g) => (
               <div key={g.id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1.5 text-xs px-3 py-2 rounded-sm" style={{ border: "1px solid rgba(237,230,214,0.12)" }}>
-                <span style={{ color: "var(--paper)" }}>{g.nome}</span>
+                {editingGastoId === g.id ? (
+                  <input
+                    type="text" autoFocus value={editingGastoNome}
+                    onChange={(e) => setEditingGastoNome(e.target.value)}
+                    className="flex-1 text-xs px-1.5 py-1 rounded-sm bg-transparent outline-none"
+                    style={{ border: "1px solid var(--gold)", color: "var(--paper)" }}
+                  />
+                ) : (
+                  <span style={{ color: "var(--paper)" }}>{g.nome}</span>
+                )}
                 <div className="flex items-center gap-2 flex-wrap">
                   {editingGastoId === g.id ? (
                     <>
                       <div className="flex items-center gap-1 px-1.5 py-1 rounded-sm" style={{ background: "var(--ink)", border: "1px solid var(--gold)" }}>
                         <span className="text-xs" style={{ color: "var(--paper-dim)", fontFamily: "'JetBrains Mono', monospace" }}>R$</span>
                         <input
-                          type="number" min="0" autoFocus value={editingGastoValor}
+                          type="number" min="0" value={editingGastoValor}
                           onChange={(e) => setEditingGastoValor(e.target.value)}
                           className="w-16 text-xs bg-transparent outline-none"
                           style={{ color: "var(--paper)", fontFamily: "'JetBrains Mono', monospace" }}
@@ -2803,7 +2852,7 @@ export default function BussolaEducacaoDeInvestimentos() {
                       </div>
                       <button
                         onClick={() => {
-                          setGastosVariaveis((prev) => prev.map((x) => (x.id === g.id ? { ...x, valor: Number(editingGastoValor) || x.valor } : x)));
+                          setGastosVariaveis((prev) => prev.map((x) => (x.id === g.id ? { ...x, valor: Number(editingGastoValor) || x.valor, nome: editingGastoNome.trim() || x.nome } : x)));
                           setEditingGastoId(null);
                         }}
                       >
@@ -2813,7 +2862,7 @@ export default function BussolaEducacaoDeInvestimentos() {
                   ) : (
                     <>
                       <span style={{ color: "var(--paper-dim)", fontFamily: "'JetBrains Mono', monospace" }}>R$ {g.valor.toLocaleString("pt-BR")}</span>
-                      <button onClick={() => { setEditingGastoId(g.id); setEditingGastoValor(String(g.valor)); }} title="Editar valor">
+                      <button onClick={() => { setEditingGastoId(g.id); setEditingGastoValor(String(g.valor)); setEditingGastoNome(g.nome); }} title="Editar nome e valor">
                         <Pencil size={11} color="var(--paper-dim)" />
                       </button>
                     </>
@@ -2886,14 +2935,23 @@ export default function BussolaEducacaoDeInvestimentos() {
           <div className="space-y-1.5 mb-2">
             {gastosVariaveis.filter((g) => g.tipo === "extra").map((g) => (
               <div key={g.id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1.5 text-xs px-3 py-2 rounded-sm" style={{ border: "1px solid rgba(237,230,214,0.12)" }}>
-                <span style={{ color: "var(--paper)" }}>{g.nome}</span>
+                {editingGastoId === g.id ? (
+                  <input
+                    type="text" autoFocus value={editingGastoNome}
+                    onChange={(e) => setEditingGastoNome(e.target.value)}
+                    className="flex-1 text-xs px-1.5 py-1 rounded-sm bg-transparent outline-none"
+                    style={{ border: "1px solid var(--gold)", color: "var(--paper)" }}
+                  />
+                ) : (
+                  <span style={{ color: "var(--paper)" }}>{g.nome}</span>
+                )}
                 <div className="flex items-center gap-2 flex-wrap">
                   {editingGastoId === g.id ? (
                     <>
                       <div className="flex items-center gap-1 px-1.5 py-1 rounded-sm" style={{ background: "var(--ink)", border: "1px solid var(--gold)" }}>
                         <span className="text-xs" style={{ color: "var(--paper-dim)", fontFamily: "'JetBrains Mono', monospace" }}>R$</span>
                         <input
-                          type="number" min="0" autoFocus value={editingGastoValor}
+                          type="number" min="0" value={editingGastoValor}
                           onChange={(e) => setEditingGastoValor(e.target.value)}
                           className="w-16 text-xs bg-transparent outline-none"
                           style={{ color: "var(--paper)", fontFamily: "'JetBrains Mono', monospace" }}
@@ -2901,7 +2959,7 @@ export default function BussolaEducacaoDeInvestimentos() {
                       </div>
                       <button
                         onClick={() => {
-                          setGastosVariaveis((prev) => prev.map((x) => (x.id === g.id ? { ...x, valor: Number(editingGastoValor) || x.valor } : x)));
+                          setGastosVariaveis((prev) => prev.map((x) => (x.id === g.id ? { ...x, valor: Number(editingGastoValor) || x.valor, nome: editingGastoNome.trim() || x.nome } : x)));
                           setEditingGastoId(null);
                         }}
                       >
@@ -2911,7 +2969,7 @@ export default function BussolaEducacaoDeInvestimentos() {
                   ) : (
                     <>
                       <span style={{ color: "var(--paper-dim)", fontFamily: "'JetBrains Mono', monospace" }}>R$ {g.valor.toLocaleString("pt-BR")}</span>
-                      <button onClick={() => { setEditingGastoId(g.id); setEditingGastoValor(String(g.valor)); }} title="Editar valor">
+                      <button onClick={() => { setEditingGastoId(g.id); setEditingGastoValor(String(g.valor)); setEditingGastoNome(g.nome); }} title="Editar nome e valor">
                         <Pencil size={11} color="var(--paper-dim)" />
                       </button>
                     </>
