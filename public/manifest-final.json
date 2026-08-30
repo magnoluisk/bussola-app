@@ -1,0 +1,10 @@
+{
+  "name": "Maat Finanças — Educação Financeira e de Investimentos",
+  "short_name": "Maat Finanças",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#14291F",
+  "theme_color": "#14291F",
+  "orientation": "portrait",
+  "icons": []
+}
