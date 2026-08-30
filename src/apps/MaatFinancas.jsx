@@ -1419,17 +1419,43 @@ export default function BussolaEducacaoDeInvestimentos() {
   }
 
   // reconhece se a fala é um pedido pra REGISTRAR algo (despesa ou receita), em vez de uma pergunta
+  function limparNomeDoComando(transcript) {
+    let nome = transcript.toLowerCase();
+    nome = nome.replace(/(\d+[.,]?\d*)/g, ""); // tira o valor
+    nome = nome.replace(/\b(registra|registrar|anota|anotar|acrescenta|acrescentar|adiciona|adicionar|coloca|colocar|lan[çc]a|lan[çc]ar|inclui|incluir|põe|por favor|uma|um|no|na|de|da|do|despesa|receita|reais?|gastei|comprei|paguei|gasto|recebi|receb[íi]|ganhei|entrou|entrada)\b/gi, "");
+    nome = nome.replace(/\s{2,}/g, " ").trim().replace(/[,.\s]+$/, "");
+    return nome;
+  }
+
   function detectarComandoDeRegistro(transcript) {
     const text = transcript.toLowerCase();
-    const ehReceita = text.match(/receb[ie]|ganhei|entrou|renda extra|freela|bico|sal[áa]rio/);
-    const ehDespesa = text.match(/gastei|comprei|paguei|registra|anota/);
-    if (ehReceita && !ehDespesa) {
+    // qualquer verbo de ação (registrar, acrescentar, adicionar, lançar...) conta como comando,
+    // não só as palavras específicas de antes
+    const acaoGenerica = /registra|anota|acrescent|adicion|coloc|lan[çc]|inclui|põe/;
+    const ehReceitaPalavra = /receb[ie]|ganhei|entrou|renda extra|freela\b|bico\b|sal[áa]rio|receita|entrada/;
+    const ehDespesaPalavra = /gastei|comprei|paguei|despesa|\bgasto\b/;
+
+    const pareceReceita = ehReceitaPalavra.test(text);
+    const pareceDespesa = ehDespesaPalavra.test(text);
+    const temAcao = acaoGenerica.test(text);
+
+    // só entra em modo "comando" se tiver ação/verbo de registro OU palavra específica de receita/despesa
+    if (!temAcao && !pareceReceita && !pareceDespesa) return null;
+
+    if (pareceReceita && !pareceDespesa) {
       const parsed = parseVoiceRenda(text);
-      if (parsed.valor != null) return { tipo: "receita", parsed };
+      if (parsed.valor != null) {
+        const nomeLimpo = limparNomeDoComando(transcript);
+        return { tipo: "receita", parsed: { ...parsed, nome: nomeLimpo || parsed.nome } };
+      }
     }
-    if (ehDespesa) {
-      const parsed = parseVoiceExpense(text);
-      if (parsed.valor != null) return { tipo: "despesa", parsed };
+
+    // padrão: se não ficou claro que é receita, trata como despesa (é o caso mais comum)
+    const parsed = parseVoiceExpense(text);
+    if (parsed.valor != null) {
+      const nomeLimpo = limparNomeDoComando(transcript);
+      const categoriaLabel = EXPENSE_CATEGORIES.find((c) => c.key === parsed.categoria)?.label || "Despesa";
+      return { tipo: "despesa", parsed: { ...parsed, nome: nomeLimpo || categoriaLabel } };
     }
     return null;
   }
@@ -1439,6 +1465,11 @@ export default function BussolaEducacaoDeInvestimentos() {
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = "pt-BR";
+
+    // tom e ritmo mais suaves, menos "robóticos" — pequenos ajustes, dentro do que a voz do aparelho permite
+    utterance.rate = 0.93;
+    utterance.pitch = 1.08;
+    utterance.volume = 1;
 
     // tenta escolher uma voz feminina em português — nomes variam por navegador/sistema
     const vozesFemininas = ["luciana", "maria", "helena", "camila", "fernanda", "female", "mulher", "google português do brasil"];
