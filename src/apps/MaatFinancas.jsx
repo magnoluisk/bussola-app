@@ -2586,8 +2586,8 @@ export default function BussolaEducacaoDeInvestimentos() {
             })}
 
             <div className="flex items-center justify-between text-xs mt-2 pt-2" style={{ borderTop: "1px solid rgba(237,230,214,0.15)" }}>
-              <span style={{ color: "var(--paper-dim)" }}>Sobra Mensal</span>
-              <span style={{ color: sobraMensal >= 0 ? "var(--gold)" : "var(--rust)", fontFamily: "'JetBrains Mono', monospace" }}>R$ {sobraMensal.toLocaleString("pt-BR")}</span>
+              <span style={{ color: "var(--paper-dim)" }}>Sobra Mensal <span className="text-[10px]">(já descontando o que você gastou)</span></span>
+              <span style={{ color: saldoDisponivelMes >= 0 ? "var(--gold)" : "var(--rust)", fontFamily: "'JetBrains Mono', monospace" }}>R$ {saldoDisponivelMes.toLocaleString("pt-BR")}</span>
             </div>
 
             {gastosPorCategoria.length > 0 && (
