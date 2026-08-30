@@ -2080,8 +2080,16 @@ export default function BussolaEducacaoDeInvestimentos() {
               <p className="text-sm leading-relaxed mb-3" style={{ color: "var(--paper)" }}>
                 <strong style={{ color: "var(--gold)" }}>Comece pela Vida Financeira — os Investimentos esperam por você.</strong>
               </p>
+              <p className="text-xs leading-relaxed mb-2" style={{ color: "var(--paper-dim)" }}>
+                Esse app é feito pra te ajudar a organizar sua vida financeira, seja qual for o seu ponto de partida:
+              </p>
+              <ul className="space-y-1.5 text-xs leading-relaxed mb-3" style={{ color: "var(--paper-dim)" }}>
+                <li>🌱 <strong style={{ color: "var(--paper)" }}>Não tem dívidas?</strong> Vamos te ajudar a potencializar isso e prosperar ainda mais, te dando um caminho pros investimentos.</li>
+                <li>⚖️ <strong style={{ color: "var(--paper)" }}>Tem dívidas?</strong> Vamos te ajudar a se livrar delas e construir uma vida financeira mais próspera.</li>
+                <li>📈 <strong style={{ color: "var(--paper)" }}>Já tem a vida financeira equilibrada e investe?</strong> Vamos te ajudar a encontrar os investimentos que combinam ainda melhor com o seu perfil.</li>
+              </ul>
               <p className="text-xs leading-relaxed mb-3" style={{ color: "var(--paper-dim)" }}>
-                Esse app existe pra te ajudar a dar a volta por cima nas dívidas e organizar sua vida financeira do zero. Só depois, com essa base sólida, faz sentido avançar pros investimentos — nenhum investimento compensa o juro de uma dívida alta correndo em paralelo.
+                Seja qual for o seu momento, o caminho começa organizando a Vida Financeira antes de avançar pros investimentos — nenhum investimento compensa o juro de uma dívida alta correndo em paralelo.
               </p>
               <p className="text-xs leading-relaxed mb-3" style={{ color: "var(--paper-dim)" }}>
                 Organizando primeiro seu orçamento e suas contas, em poucos meses você já consegue guardar dinheiro de verdade e sentir mais estabilidade no dia a dia. Isso exige disciplina — mas cuidar das suas finanças é, antes de tudo, se colocar em primeiro lugar.
