@@ -565,10 +565,30 @@ function categorizeExpenseName(nome) {
   return found || EXPENSE_CATEGORIES[EXPENSE_CATEGORIES.length - 1];
 }
 
+// extrai valor em dinheiro de um texto falado, cobrindo os formatos que o reconhecimento
+// de voz costuma gerar pra centavos (inclusive a fração estranha tipo "53 65/100")
+function extrairValorMonetario(text) {
+  const t = text.toLowerCase();
+
+  let m = t.match(/(\d+)\s*(?:reais?)?\s*e\s*(\d{1,2})\s*centavos?/);
+  if (m) return { valor: parseFloat(`${m[1]}.${m[2].padStart(2, "0")}`), bruto: m[0] };
+
+  // reconhecimento de voz às vezes transcreve "53,65" como fração falada: "53 65/100"
+  m = t.match(/(\d+)\s+(\d{1,2})\s*\/\s*100/);
+  if (m) return { valor: parseFloat(`${m[1]}.${m[2].padStart(2, "0")}`), bruto: m[0] };
+
+  m = t.match(/(\d+)[,.](\d{1,2})\b/);
+  if (m) return { valor: parseFloat(`${m[1]}.${m[2].padStart(2, "0")}`), bruto: m[0] };
+
+  m = t.match(/(\d+)/);
+  if (m) return { valor: parseFloat(m[1]), bruto: m[0] };
+
+  return { valor: null, bruto: "" };
+}
+
 function parseVoiceExpense(transcript) {
   const text = transcript.toLowerCase();
-  const match = text.match(/(\d+[.,]?\d*)/);
-  const valor = match ? parseFloat(match[1].replace(",", ".")) : null;
+  const { valor } = extrairValorMonetario(text);
   let categoria = EXPENSE_CATEGORIES.find((c) => c.keywords.some((k) => text.includes(k)));
   if (!categoria) categoria = EXPENSE_CATEGORIES[EXPENSE_CATEGORIES.length - 1];
   const extraHints = ["conserto", "emergência", "presente", "imprevisto", "quebrou", "multa"];
@@ -577,6 +597,10 @@ function parseVoiceExpense(transcript) {
 }
 
 // interpreta um custo fixo falado, tipo "aluguel 600 reais, vence dia 5"
+function escapeRegex(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function parseVoiceCustoFixo(transcript) {
   const text = transcript.toLowerCase();
   const diaMatch = text.match(/dia\s+(\d{1,2})/);
@@ -584,13 +608,12 @@ function parseVoiceCustoFixo(transcript) {
 
   // pra achar o valor, ignora o número que já foi capturado como "dia X"
   const semDia = diaMatch ? text.replace(diaMatch[0], "") : text;
-  const valorMatch = semDia.match(/(\d+[.,]?\d*)/);
-  const valor = valorMatch ? parseFloat(valorMatch[1].replace(",", ".")) : null;
+  const { valor, bruto } = extrairValorMonetario(semDia);
 
   let nome = transcript;
-  if (valorMatch) nome = nome.replace(new RegExp(valorMatch[1].replace(".", "[.,]"), "i"), "");
+  if (bruto) nome = nome.replace(new RegExp(escapeRegex(bruto), "i"), "");
   if (diaMatch) nome = nome.replace(new RegExp(diaMatch[0], "i"), "");
-  nome = nome.replace(/\breais?\b|\bvence\b|\btodo\b/gi, "").replace(/\s{2,}/g, " ").trim().replace(/[,.\s]+$/, "");
+  nome = nome.replace(/\breais?\b|\bvence\b|\btodo\b|\bcentavos?\b|\be\b/gi, "").replace(/\s{2,}/g, " ").trim().replace(/[,.\s]+$/, "");
 
   return { nome: nome || transcript, valor, dia };
 }
@@ -602,14 +625,13 @@ function parseVoiceObjetivo(transcript) {
   const prazoMeses = prazoMatch ? parseInt(prazoMatch[1], 10) : null;
 
   const semPrazo = prazoMatch ? text.replace(prazoMatch[0], "") : text;
-  const valorMatch = semPrazo.match(/(\d+[.,]?\d*)/);
-  const valor = valorMatch ? parseFloat(valorMatch[1].replace(",", ".")) : null;
+  const { valor, bruto } = extrairValorMonetario(semPrazo);
 
   let nome = transcript;
-  if (valorMatch) nome = nome.replace(new RegExp(valorMatch[1].replace(".", "[.,]"), "i"), "");
+  if (bruto) nome = nome.replace(new RegExp(escapeRegex(bruto), "i"), "");
   if (prazoMatch) nome = nome.replace(new RegExp(prazoMatch[0], "i"), "");
   nome = nome
-    .replace(/\breais?\b|\bem\b|\bdaqui\b|\bquero\b|\bcomprar\b|\bpra\b|\bpara\b|\bum\b|\buma\b/gi, "")
+    .replace(/\breais?\b|\bem\b|\bdaqui\b|\bquero\b|\bcomprar\b|\bpra\b|\bpara\b|\bum\b|\buma\b|\bcentavos?\b|\be\b/gi, "")
     .replace(/\s{2,}/g, " ").trim().replace(/[,.\s]+$/, "");
 
   return { nome: nome || transcript, valor, prazoMeses };
@@ -618,8 +640,7 @@ function parseVoiceObjetivo(transcript) {
 // interpreta uma renda falada, tipo "renda fixa 3500 reais" ou "ganhei 700 de comissão"
 function parseVoiceRenda(transcript) {
   const text = transcript.toLowerCase();
-  const match = text.match(/(\d+[.,]?\d*)/);
-  const valor = match ? parseFloat(match[1].replace(",", ".")) : null;
+  const { valor, bruto } = extrairValorMonetario(text);
 
   let tipo = "fixa";
   if (text.match(/vari[áa]vel|comiss[ãa]o|b[ôo]nus/)) tipo = "variavel";
@@ -627,9 +648,9 @@ function parseVoiceRenda(transcript) {
   else if (text.match(/fixa|sal[áa]rio/)) tipo = "fixa";
 
   let nome = transcript;
-  if (match) nome = nome.replace(new RegExp(match[1].replace(".", "[.,]"), "i"), "");
+  if (bruto) nome = nome.replace(new RegExp(escapeRegex(bruto), "i"), "");
   nome = nome
-    .replace(/\brenda\b|\bfixa\b|\bvari[áa]vel\b|\bextra\b|\bsal[áa]rio\b|\bcomiss[ãa]o\b|\bb[ôo]nus\b|\breais?\b|\bfreela\b|\bbico\b|\bganhei\b|\bde\b/gi, "")
+    .replace(/\brenda\b|\bfixa\b|\bvari[áa]vel\b|\bextra\b|\bsal[áa]rio\b|\bcomiss[ãa]o\b|\bb[ôo]nus\b|\breais?\b|\bfreela\b|\bbico\b|\bganhei\b|\bde\b|\bcentavos?\b|\be\b/gi, "")
     .replace(/\s{2,}/g, " ").trim().replace(/[,.\s]+$/, "");
   if (!nome) nome = tipo === "fixa" ? "Salário" : tipo === "variavel" ? "Renda variável" : "Renda extra";
 
@@ -1421,8 +1442,10 @@ export default function BussolaEducacaoDeInvestimentos() {
   // reconhece se a fala é um pedido pra REGISTRAR algo (despesa ou receita), em vez de uma pergunta
   function limparNomeDoComando(transcript) {
     let nome = transcript.toLowerCase();
-    nome = nome.replace(/(\d+[.,]?\d*)/g, ""); // tira o valor
-    nome = nome.replace(/\b(registra|registrar|anota|anotar|acrescenta|acrescentar|adiciona|adicionar|coloca|colocar|lan[çc]a|lan[çc]ar|inclui|incluir|põe|por favor|uma|um|no|na|de|da|do|despesa|receita|reais?|gastei|comprei|paguei|gasto|recebi|receb[íi]|ganhei|entrou|entrada)\b/gi, "");
+    nome = nome.replace(/\d+\s+\d{1,2}\s*\/\s*100/g, ""); // formato de fração falado: "53 65/100"
+    nome = nome.replace(/\d+\s*(?:reais?)?\s*e\s*\d{1,2}\s*centavos?/g, ""); // "53 e 65 centavos"
+    nome = nome.replace(/(\d+[.,]?\d*)/g, ""); // resto dos números
+    nome = nome.replace(/\b(registra|registrar|anota|anotar|acrescenta|acrescentar|adiciona|adicionar|coloca|colocar|lan[çc]a|lan[çc]ar|inclui|incluir|põe|por favor|uma|um|no|na|de|da|do|despesa|receita|reais?|centavos?|gastei|comprei|paguei|gasto|recebi|receb[íi]|ganhei|entrou|entrada)\b/gi, "");
     nome = nome.replace(/\s{2,}/g, " ").trim().replace(/[,.\s]+$/, "");
     return nome;
   }
