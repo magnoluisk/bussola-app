@@ -1143,6 +1143,7 @@ export default function BussolaEducacaoDeInvestimentos() {
   // ---------- Planejamento mensal de gastos (fixas, variáveis, extras) ----------
   const [showPlanejamentoModal, setShowPlanejamentoModal] = useState(false);
   const [showRelatorioMensal, setShowRelatorioMensal] = useState(false);
+  const [showMaatFlutuante, setShowMaatFlutuante] = useState(false);
   const [planejamentoStep, setPlanejamentoStep] = useState(1);
   const [metaFixasInput, setMetaFixasInput] = useState("");
   const [metaVariavelInput, setMetaVariavelInput] = useState("");
@@ -1229,108 +1230,111 @@ export default function BussolaEducacaoDeInvestimentos() {
   const [consultorResponse, setConsultorResponse] = useState("");
   const [consultorModoResposta, setConsultorModoResposta] = useState("voz");
 
-  function startVoiceCapture() {
+  // ---------- Motor único de reconhecimento de voz (com trava de segurança contra microfone travado) ----------
+  function iniciarReconhecimentoDeVoz({ onResult, onStart, onStop, timeoutMs = 7000 }) {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
       setVoiceSupported(false);
-      return;
+      return null;
     }
     const recognition = new SpeechRecognition();
     recognition.lang = "pt-BR";
     recognition.interimResults = false;
     recognition.maxAlternatives = 1;
-    setIsListening(true);
+    recognition.continuous = false;
+
+    let jaFinalizou = false;
+    const finalizar = () => {
+      if (jaFinalizou) return;
+      jaFinalizou = true;
+      clearTimeout(timerSeguranca);
+      onStop && onStop();
+    };
+
+    // trava de segurança: se o navegador não avisar sozinho, força parar depois de alguns segundos
+    const timerSeguranca = setTimeout(() => {
+      try { recognition.stop(); } catch (e) {}
+      finalizar();
+    }, timeoutMs);
+
     recognition.onresult = (event) => {
       const transcript = event.results[0][0].transcript;
-      const parsed = parseVoiceExpense(transcript);
-      setNovoGasto({ nome: parsed.nome, valor: parsed.valor != null ? String(parsed.valor) : "", tipo: parsed.tipo });
-      setVoicePreview(parsed);
-      setIsListening(false);
+      clearTimeout(timerSeguranca);
+      jaFinalizou = true;
+      onResult(transcript);
+      onStop && onStop();
     };
-    recognition.onerror = () => setIsListening(false);
-    recognition.onend = () => setIsListening(false);
-    recognition.start();
+    recognition.onerror = () => finalizar();
+    recognition.onend = () => finalizar();
+    recognition.onspeechend = () => { try { recognition.stop(); } catch (e) {} };
+
+    onStart && onStart();
+    try {
+      recognition.start();
+    } catch (e) {
+      finalizar();
+    }
+    return recognition;
+  }
+
+  function startVoiceCapture() {
+    iniciarReconhecimentoDeVoz({
+      onStart: () => setIsListening(true),
+      onStop: () => setIsListening(false),
+      onResult: (transcript) => {
+        const parsed = parseVoiceExpense(transcript);
+        setNovoGasto({ nome: parsed.nome, valor: parsed.valor != null ? String(parsed.valor) : "", tipo: parsed.tipo });
+        setVoicePreview(parsed);
+      },
+    });
   }
 
   function startVoiceCaptureCustoFixo() {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      setVoiceSupported(false);
-      return;
-    }
-    const recognition = new SpeechRecognition();
-    recognition.lang = "pt-BR";
-    recognition.interimResults = false;
-    recognition.maxAlternatives = 1;
-    setIsListeningCustoFixo(true);
-    recognition.onresult = (event) => {
-      const transcript = event.results[0][0].transcript;
-      const parsed = parseVoiceCustoFixo(transcript);
-      setNovoCustoFixo({
-        nome: parsed.nome,
-        valor: parsed.valor != null ? String(parsed.valor) : "",
-        diaVencimento: parsed.dia != null ? String(parsed.dia) : "",
-      });
-      setIsListeningCustoFixo(false);
-    };
-    recognition.onerror = () => setIsListeningCustoFixo(false);
-    recognition.onend = () => setIsListeningCustoFixo(false);
-    recognition.start();
+    iniciarReconhecimentoDeVoz({
+      onStart: () => setIsListeningCustoFixo(true),
+      onStop: () => setIsListeningCustoFixo(false),
+      onResult: (transcript) => {
+        const parsed = parseVoiceCustoFixo(transcript);
+        setNovoCustoFixo({
+          nome: parsed.nome,
+          valor: parsed.valor != null ? String(parsed.valor) : "",
+          diaVencimento: parsed.dia != null ? String(parsed.dia) : "",
+        });
+      },
+    });
   }
 
   function startVoiceCaptureRenda() {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      setVoiceSupported(false);
-      return;
-    }
-    const recognition = new SpeechRecognition();
-    recognition.lang = "pt-BR";
-    recognition.interimResults = false;
-    recognition.maxAlternatives = 1;
-    setIsListeningRenda(true);
-    recognition.onresult = (event) => {
-      const transcript = event.results[0][0].transcript;
-      const parsed = parseVoiceRenda(transcript);
-      if (parsed.valor != null) {
-        const preenchido = { nome: parsed.nome, valor: String(parsed.valor) };
-        if (parsed.tipo === "fixa") setNovaRendaFixa(preenchido);
-        else if (parsed.tipo === "variavel") setNovaRendaVariavel(preenchido);
-        else if (parsed.tipo === "extra") setNovaRendaExtra(preenchido);
-      }
-      setUltimaRendaCapturada({ transcript, ...parsed });
-      setIsListeningRenda(false);
-    };
-    recognition.onerror = () => setIsListeningRenda(false);
-    recognition.onend = () => setIsListeningRenda(false);
-    recognition.start();
+    iniciarReconhecimentoDeVoz({
+      onStart: () => setIsListeningRenda(true),
+      onStop: () => setIsListeningRenda(false),
+      onResult: (transcript) => {
+        const parsed = parseVoiceRenda(transcript);
+        if (parsed.valor != null) {
+          const preenchido = { nome: parsed.nome, valor: String(parsed.valor) };
+          if (parsed.tipo === "fixa") setNovaRendaFixa(preenchido);
+          else if (parsed.tipo === "variavel") setNovaRendaVariavel(preenchido);
+          else if (parsed.tipo === "extra") setNovaRendaExtra(preenchido);
+        }
+        setUltimaRendaCapturada({ transcript, ...parsed });
+      },
+    });
   }
 
   function startVoiceCaptureObjetivo() {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      setVoiceSupported(false);
-      return;
-    }
-    const recognition = new SpeechRecognition();
-    recognition.lang = "pt-BR";
-    recognition.interimResults = false;
-    recognition.maxAlternatives = 1;
-    setIsListeningObjetivo(true);
-    recognition.onresult = (event) => {
-      const transcript = event.results[0][0].transcript;
-      const parsed = parseVoiceObjetivo(transcript);
-      setNovoObjetivo((f) => ({
-        ...f,
-        nome: parsed.nome,
-        valorAlvo: parsed.valor != null ? String(parsed.valor) : f.valorAlvo,
-        prazoMeses: parsed.prazoMeses != null ? String(parsed.prazoMeses) : f.prazoMeses,
-      }));
-      setIsListeningObjetivo(false);
-    };
-    recognition.onerror = () => setIsListeningObjetivo(false);
-    recognition.onend = () => setIsListeningObjetivo(false);
-    recognition.start();
+    iniciarReconhecimentoDeVoz({
+      onStart: () => setIsListeningObjetivo(true),
+      onStop: () => setIsListeningObjetivo(false),
+      onResult: (transcript) => {
+        const parsed = parseVoiceObjetivo(transcript);
+        setNovoObjetivo((f) => ({
+          ...f,
+          nome: parsed.nome,
+          valorAlvo: parsed.valor != null ? String(parsed.valor) : f.valorAlvo,
+          prazoMeses: parsed.prazoMeses != null ? String(parsed.prazoMeses) : f.prazoMeses,
+        }));
+      },
+    });
   }
 
   // ---------- Simulação de notificação de transação bancária (demo, sem backend real) ----------
@@ -1356,23 +1360,11 @@ export default function BussolaEducacaoDeInvestimentos() {
   }
 
   function startVoiceCaptureMockTransaction() {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      setVoiceSupported(false);
-      return;
-    }
-    const recognition = new SpeechRecognition();
-    recognition.lang = "pt-BR";
-    recognition.interimResults = false;
-    recognition.maxAlternatives = 1;
-    setIsListeningMockTransaction(true);
-    recognition.onresult = (event) => {
-      responderTransacaoSimulada(event.results[0][0].transcript);
-      setIsListeningMockTransaction(false);
-    };
-    recognition.onerror = () => setIsListeningMockTransaction(false);
-    recognition.onend = () => setIsListeningMockTransaction(false);
-    recognition.start();
+    iniciarReconhecimentoDeVoz({
+      onStart: () => setIsListeningMockTransaction(true),
+      onStop: () => setIsListeningMockTransaction(false),
+      onResult: (transcript) => responderTransacaoSimulada(transcript),
+    });
   }
 
   // ---------- Minha Consultora Maat Assistente ----------
@@ -1403,7 +1395,43 @@ export default function BussolaEducacaoDeInvestimentos() {
       return `Sua renda mensal é R$ ${rendaMensal.toLocaleString("pt-BR")}, seus custos fixos somam R$ ${totalCustosFixos.toLocaleString("pt-BR")}, sobrando R$ ${sobraMensal.toLocaleString("pt-BR")} por mês. Até agora você já gastou R$ ${totalGastoVariavelMes.toLocaleString("pt-BR")} em custos variáveis e extras, e seu orçamento pra hoje é de R$ ${orcamentoDiario.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.`;
     }
 
-    return `Não entendi exatamente sua pergunta, mas aqui vai um resumo rápido: seu orçamento de hoje é R$ ${orcamentoDiario.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}, e sua sobra do mês é R$ ${sobraMensal.toLocaleString("pt-BR")}. Você pode me perguntar sobre "quanto posso gastar hoje", "minhas dívidas", "minha reserva de emergência" ou "minha situação financeira".`;
+    // ---- explicações sobre o próprio app, pra Maat poder tirar dúvida de qualquer lugar ----
+    if (q.match(/quem [ée] voc[êe]|o que voc[êe] (faz|é)/)) {
+      return `Eu sou a Maat, sua assistente dentro do app. Posso responder dúvidas sobre sua vida financeira, explicar qualquer parte do aplicativo, e também registrar despesas, receitas e outras informações se você me pedir por voz.`;
+    }
+    if (q.match(/o que [ée] (a )?minha carteira|como funciona a carteira/)) {
+      return `Minha Carteira, dentro de Investimentos, mostra quanto e como investir de acordo com o seu perfil — conservador, moderado ou agressivo. É lá que você vê a divisão sugerida entre ações, renda fixa, fundos imobiliários e outras classes.`;
+    }
+    if (q.match(/o que [ée] (a[çc][õo]es|renda fixa|fundo imobili[áa]rio|fiis|etfs?|previd[êe]ncia|cripto)/)) {
+      return `Cada uma dessas é uma classe de investimento diferente, com risco e liquidez próprios. Dentro de Investimentos, cada aba explica a classe específica e mostra o porquê de cada recomendação pro seu perfil. Vale abrir "O que é isso?" dentro de qualquer uma delas pra entender melhor.`;
+    }
+    if (q.match(/o que [ée] (o guia da prosperidade|prosperidade)/)) {
+      return `O Guia da Prosperidade te dá ideias de renda extra e pequenos negócios, calibradas pelo seu perfil e pelas habilidades que você descrever. Fica dentro de Vida Financeira.`;
+    }
+    if (q.match(/o que [ée] (meus objetivos|objetivo)/)) {
+      return `Em Meus Objetivos você cadastra sonhos como carro, casa ou viagem, com valor e prazo, e eu calculo quanto guardar por mês pra chegar lá — dá até pra falar isso por voz.`;
+    }
+    if (q.match(/como (eu )?(uso|funciona|navego)|estudar mais|onde (fica|encontro)/)) {
+      return `O app tem duas partes principais: Vida Financeira (organizar renda, despesas, dívidas e reserva) e Investimentos (ações, renda fixa e outras classes, pelo seu perfil). Se quiser um resumo completo, abre o botão "Conheça tudo o que você tem aqui" na tela inicial — ele explica cada função em detalhe.`;
+    }
+
+    return `Não entendi exatamente sua pergunta, mas aqui vai um resumo rápido: seu orçamento de hoje é R$ ${orcamentoDiario.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}, e sua sobra do mês é R$ ${sobraMensal.toLocaleString("pt-BR")}. Você pode me perguntar sobre "quanto posso gastar hoje", "minhas dívidas", "minha reserva de emergência", "minha situação financeira", ou como usar qualquer parte do app.`;
+  }
+
+  // reconhece se a fala é um pedido pra REGISTRAR algo (despesa ou receita), em vez de uma pergunta
+  function detectarComandoDeRegistro(transcript) {
+    const text = transcript.toLowerCase();
+    const ehReceita = text.match(/receb[ie]|ganhei|entrou|renda extra|freela|bico|sal[áa]rio/);
+    const ehDespesa = text.match(/gastei|comprei|paguei|registra|anota/);
+    if (ehReceita && !ehDespesa) {
+      const parsed = parseVoiceRenda(text);
+      if (parsed.valor != null) return { tipo: "receita", parsed };
+    }
+    if (ehDespesa) {
+      const parsed = parseVoiceExpense(text);
+      if (parsed.valor != null) return { tipo: "despesa", parsed };
+    }
+    return null;
   }
 
   function speakConsultorResponse(text) {
@@ -1424,48 +1452,40 @@ export default function BussolaEducacaoDeInvestimentos() {
   }
 
   function startVoiceCaptureConsultor() {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      setVoiceSupported(false);
-      return;
-    }
-    const recognition = new SpeechRecognition();
-    recognition.lang = "pt-BR";
-    recognition.interimResults = false;
-    recognition.maxAlternatives = 1;
-    setIsListeningConsultor(true);
-    recognition.onresult = (event) => {
-      const transcript = event.results[0][0].transcript;
-      setConsultorQuestion(transcript);
-      const response = buildConsultorResponse(transcript);
-      setConsultorResponse(response);
-      if (consultorModoResposta === "voz") speakConsultorResponse(response);
-      setIsListeningConsultor(false);
-    };
-    recognition.onerror = () => setIsListeningConsultor(false);
-    recognition.onend = () => setIsListeningConsultor(false);
-    recognition.start();
+    iniciarReconhecimentoDeVoz({
+      onStart: () => setIsListeningConsultor(true),
+      onStop: () => setIsListeningConsultor(false),
+      onResult: (transcript) => {
+        setConsultorQuestion(transcript);
+
+        // se for um comando de registrar despesa/receita, executa direto e avisa
+        const comando = detectarComandoDeRegistro(transcript);
+        let response;
+        if (comando && comando.tipo === "despesa") {
+          setGastosVariaveis((prev) => [{ id: Date.now(), nome: comando.parsed.nome, valor: comando.parsed.valor, tipo: comando.parsed.tipo }, ...prev]);
+          response = `Prontinho, registrei "${comando.parsed.nome}" de R$ ${comando.parsed.valor.toLocaleString("pt-BR")} nas suas despesas.`;
+        } else if (comando && comando.tipo === "receita") {
+          const item = { id: Date.now(), nome: comando.parsed.nome, valor: comando.parsed.valor };
+          if (comando.parsed.tipo === "fixa") setRendaFixaItens((prev) => [...prev, item]);
+          else if (comando.parsed.tipo === "variavel") setRendaVariavelItens((prev) => [...prev, item]);
+          else setRendaExtraItens((prev) => [...prev, item]);
+          response = `Prontinho, registrei R$ ${comando.parsed.valor.toLocaleString("pt-BR")} como renda ${comando.parsed.tipo === "fixa" ? "fixa" : comando.parsed.tipo === "variavel" ? "variável" : "extra"}.`;
+        } else {
+          response = buildConsultorResponse(transcript);
+        }
+
+        setConsultorResponse(response);
+        if (consultorModoResposta === "voz") speakConsultorResponse(response);
+      },
+    });
   }
 
   function startVoiceCaptureSkills() {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      setVoiceSupported(false);
-      return;
-    }
-    const recognition = new SpeechRecognition();
-    recognition.lang = "pt-BR";
-    recognition.interimResults = false;
-    recognition.maxAlternatives = 1;
-    setIsListeningSkills(true);
-    recognition.onresult = (event) => {
-      const transcript = event.results[0][0].transcript;
-      setSkillsInput((prev) => (prev ? `${prev}, ${transcript}` : transcript));
-      setIsListeningSkills(false);
-    };
-    recognition.onerror = () => setIsListeningSkills(false);
-    recognition.onend = () => setIsListeningSkills(false);
-    recognition.start();
+    iniciarReconhecimentoDeVoz({
+      onStart: () => setIsListeningSkills(true),
+      onStop: () => setIsListeningSkills(false),
+      onResult: (transcript) => setSkillsInput((prev) => (prev ? `${prev}, ${transcript}` : transcript)),
+    });
   }
 
   return (
@@ -1502,7 +1522,7 @@ export default function BussolaEducacaoDeInvestimentos() {
 
             <AccordionItem id="rumo" title="Você sabia que aqui dentro você tem uma parceira? A Maat Assistente? Aprenda como ela funciona" isOpen={welcomeSection === "rumo"} onToggle={setWelcomeSection}>
               <p className="text-xs leading-relaxed" style={{ color: "var(--paper)" }}>
-                Ela é sua agente financeira de bolso — fala com você por voz dentro do ícone <strong style={{ color: "var(--gold)" }}>Minha Vida Financeira</strong>, tira suas dúvidas do dia a dia antes de gastar, e também registra suas despesas por voz. Tá na correria e não consegue digitar? Pede pra ela por voz que ela registra a informação. Você só precisa confirmar depois.
+                Ela é sua agente financeira de bolso — está sempre disponível pra você no <strong style={{ color: "var(--gold)" }}>botão flutuante no canto da tela</strong>, em qualquer parte do app. É só clicar e falar. Ela tira suas dúvidas do dia a dia antes de gastar, explica qualquer função do aplicativo, e também registra suas despesas e receitas por voz. Tá na correria e não consegue digitar? Pede pra ela por voz que ela registra a informação. Você só precisa confirmar depois.
               </p>
             </AccordionItem>
 
@@ -2073,7 +2093,7 @@ export default function BussolaEducacaoDeInvestimentos() {
             {[
               { key: "saldo", label: "Saldo Disponível", icon: Wallet },
               { key: "receitas", label: "Receitas", icon: TrendingUp },
-              { key: "rumo", label: "Falar com a Maat Assistente", icon: Headphones },
+              { key: "rumo", label: "Falar com a Maat Assistente", icon: Mic },
               { key: "despesas", label: "Despesas", icon: Receipt },
               { key: "prosperidade", label: "Guia da Prosperidade", icon: Compass },
               { key: "orcamento", label: "Orçamento Diário", icon: Calendar },
@@ -2393,7 +2413,7 @@ export default function BussolaEducacaoDeInvestimentos() {
           style={{ background: "linear-gradient(135deg, rgba(190,154,92,0.16), rgba(190,154,92,0.04))", border: "1px solid var(--gold)" }}
         >
           <div className="flex items-center gap-2 mb-1">
-            <Headphones size={18} color="var(--gold)" />
+            <Mic size={18} color="var(--gold)" />
             <span className="text-sm font-bold" style={{ color: "var(--gold)", fontFamily: "'Roboto Slab', serif" }}>Minha Consultora Maat</span>
           </div>
           <p className="text-xs mb-3" style={{ color: "var(--paper-dim)" }}>
@@ -4843,6 +4863,87 @@ export default function BussolaEducacaoDeInvestimentos() {
       </>
       )}
       </>
+      )}
+
+      {/* Botão flutuante da Maat Assistente — acessível em qualquer tela do app, como uma Alexa */}
+      <button
+        onClick={() => setShowMaatFlutuante(true)}
+        className="fixed z-40 flex flex-col items-center justify-center rounded-2xl shadow-lg gap-0.5"
+        style={{
+          bottom: 20, right: 20, width: 66, height: 66,
+          background: "var(--gold)", color: "var(--ink)",
+          boxShadow: "0 4px 14px rgba(0,0,0,0.4)",
+        }}
+        title="Assistente de voz"
+      >
+        <Mic size={22} />
+        <span style={{ fontSize: 8, fontWeight: 700, lineHeight: 1.1, textAlign: "center" }}>Assistente<br />de voz</span>
+      </button>
+
+      {showMaatFlutuante && (
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center px-5 py-6"
+          style={{ background: "rgba(20,41,31,0.85)" }}
+          onClick={(e) => { if (e.target === e.currentTarget) setShowMaatFlutuante(false); }}
+        >
+          <div className="w-full max-w-sm rounded-sm p-5 overflow-y-auto" style={{ background: "var(--panel)", border: "1px solid var(--gold)", maxHeight: "85vh" }}>
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <Mic size={18} color="var(--gold)" />
+                <span className="text-sm font-bold" style={{ color: "var(--gold)", fontFamily: "'Roboto Slab', serif" }}>Maat Assistente</span>
+              </div>
+              <button onClick={() => setShowMaatFlutuante(false)}><X size={18} color="var(--paper-dim)" /></button>
+            </div>
+
+            <p className="text-xs leading-relaxed mb-3" style={{ color: "var(--paper-dim)" }}>
+              Pergunte qualquer coisa sobre sua vida financeira, sobre como usar o app, ou peça pra eu registrar uma despesa ou receita — de qualquer tela, a qualquer momento.
+            </p>
+
+            <div className="mb-3">
+              <div className="flex gap-2">
+                {[{ key: "voz", label: "Por voz" }, { key: "texto", label: "Só por escrito" }].map((opt) => (
+                  <button
+                    key={opt.key}
+                    onClick={() => setConsultorModoResposta(opt.key)}
+                    className="px-3 py-1.5 text-xs rounded-sm"
+                    style={{
+                      background: consultorModoResposta === opt.key ? "var(--gold)" : "transparent",
+                      color: consultorModoResposta === opt.key ? "var(--ink)" : "var(--paper-dim)",
+                      border: `1px solid ${consultorModoResposta === opt.key ? "var(--gold)" : "rgba(237,230,214,0.25)"}`,
+                    }}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <button
+              onClick={startVoiceCaptureConsultor}
+              className="flex items-center gap-2 text-sm font-semibold px-4 py-2.5 rounded-sm w-full justify-center transition-colors"
+              style={{ background: isListeningConsultor ? "var(--rust)" : "var(--gold)", color: isListeningConsultor ? "var(--paper)" : "var(--ink)" }}
+            >
+              {isListeningConsultor ? <MicOff size={16} /> : <Mic size={16} />}
+              {isListeningConsultor ? "Ouvindo... fale agora" : "Falar com a Maat"}
+            </button>
+
+            {!voiceSupported && (
+              <p className="text-[10px] mt-2" style={{ color: "var(--paper-dim)" }}>Reconhecimento de voz não suportado nesse navegador.</p>
+            )}
+
+            {consultorQuestion && (
+              <div className="mt-4 pt-4" style={{ borderTop: "1px solid rgba(190,154,92,0.3)" }}>
+                <p className="text-xs mb-2" style={{ color: "var(--paper-dim)" }}>
+                  Você perguntou: <span style={{ color: "var(--paper)" }}>"{consultorQuestion}"</span>
+                </p>
+                <div className="flex items-start gap-2 p-3 rounded-sm" style={{ background: "var(--ink)" }}>
+                  <Volume2 size={14} color="var(--gold)" className="shrink-0 mt-0.5" />
+                  <p className="text-sm leading-relaxed" style={{ color: "var(--paper)" }}>{consultorResponse}</p>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );
