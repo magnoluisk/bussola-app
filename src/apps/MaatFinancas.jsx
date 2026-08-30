@@ -1256,50 +1256,76 @@ export default function BussolaEducacaoDeInvestimentos() {
   const [consultorModoResposta, setConsultorModoResposta] = useState("voz");
 
   // ---------- Motor único de reconhecimento de voz (com trava de segurança contra microfone travado) ----------
-  function iniciarReconhecimentoDeVoz({ onResult, onStart, onStop, timeoutMs = 7000 }) {
+  function iniciarReconhecimentoDeVoz({ onResult, onStart, onStop, timeoutMs = 18000, minTimeMs = 8000 }) {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
       setVoiceSupported(false);
       return null;
     }
-    const recognition = new SpeechRecognition();
-    recognition.lang = "pt-BR";
-    recognition.interimResults = false;
-    recognition.maxAlternatives = 1;
-    recognition.continuous = false;
 
+    const inicio = Date.now();
+    let transcriptAcumulado = "";
     let jaFinalizou = false;
+    let tentativas = 0;
+    let sessaoAtual = null;
+
     const finalizar = () => {
       if (jaFinalizou) return;
       jaFinalizou = true;
       clearTimeout(timerSeguranca);
+      if (transcriptAcumulado.trim()) onResult(transcriptAcumulado.trim());
       onStop && onStop();
     };
 
-    // trava de segurança: se o navegador não avisar sozinho, força parar depois de alguns segundos
+    // trava de segurança: nunca deixa o microfone aberto pra sempre, não importa o que aconteça
     const timerSeguranca = setTimeout(() => {
-      try { recognition.stop(); } catch (e) {}
+      try { sessaoAtual && sessaoAtual.stop(); } catch (e) {}
       finalizar();
     }, timeoutMs);
 
-    recognition.onresult = (event) => {
-      const transcript = event.results[0][0].transcript;
-      clearTimeout(timerSeguranca);
-      jaFinalizou = true;
-      onResult(transcript);
-      onStop && onStop();
-    };
-    recognition.onerror = () => finalizar();
-    recognition.onend = () => finalizar();
-    recognition.onspeechend = () => { try { recognition.stop(); } catch (e) {} };
+    function criarSessao() {
+      const r = new SpeechRecognition();
+      r.lang = "pt-BR";
+      r.interimResults = false;
+      r.maxAlternatives = 1;
+      // contínuo: não corta na primeira pausa que a pessoa fizer no meio da frase
+      r.continuous = true;
+
+      r.onresult = (event) => {
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          if (event.results[i].isFinal) {
+            transcriptAcumulado = (transcriptAcumulado + " " + event.results[i][0].transcript).trim();
+          }
+        }
+      };
+      r.onerror = () => {};
+      r.onend = () => {
+        const passou = Date.now() - inicio;
+        tentativas++;
+        // se ainda não completou o tempo mínimo de escuta, reabre uma nova sessão sozinho,
+        // sem a pessoa perceber, em vez de encerrar a captura antes da hora
+        if (passou < minTimeMs && tentativas < 6 && !jaFinalizou) {
+          try {
+            sessaoAtual = criarSessao();
+            sessaoAtual.start();
+          } catch (e) {
+            finalizar();
+          }
+          return;
+        }
+        finalizar();
+      };
+      return r;
+    }
 
     onStart && onStart();
+    sessaoAtual = criarSessao();
     try {
-      recognition.start();
+      sessaoAtual.start();
     } catch (e) {
       finalizar();
     }
-    return recognition;
+    return sessaoAtual;
   }
 
   function startVoiceCapture() {
