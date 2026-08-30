@@ -1396,6 +1396,29 @@ export default function BussolaEducacaoDeInvestimentos() {
   function buildConsultorResponse(query) {
     const q = query.toLowerCase();
 
+    // "sobrou X, como investir?" — sugere a divisão por classe, calibrada pelo perfil
+    if (q.match(/investir|investimento/)) {
+      const { valor } = extrairValorMonetario(q);
+      const valorParaInvestir = valor != null ? valor : sobraMensal > 0 ? sobraMensal : null;
+
+      if (!valorParaInvestir || valorParaInvestir <= 0) {
+        return `Adoraria te ajudar com isso! Me diz quanto você quer investir (ex: "quero investir 500 reais") que eu já sugiro a divisão certa pro seu perfil ${profile.label.toLowerCase()}.`;
+      }
+
+      const dividasEmAberto = dividas.length > 0 && temDividaCara;
+      if (dividasEmAberto) {
+        return `Antes de investir esse valor, uma dica importante pro seu momento: você ainda tem dívida com juro alto rolando. Nenhum investimento paga um juro de cartão ou cheque especial — o melhor destino desse dinheiro agora é quitar essa dívida primeiro. Depois que isso estiver resolvido, aí sim eu te ajudo com a divisão certa pra investir.`;
+      }
+
+      const alocacao = computeAllocation(profileKey, valorParaInvestir);
+      const partes = Object.keys(ASSET_CLASS_META)
+        .filter((k) => alocacao[k] > 0)
+        .map((k) => `${alocacao[k]}% em ${ASSET_CLASS_META[k].label}`)
+        .join(", ");
+
+      return `Boa! Sua vida financeira parece estar equilibrada — vamos fazer esse dinheiro trabalhar. Como o seu perfil é ${profile.label.toLowerCase()}, pra R$ ${valorParaInvestir.toLocaleString("pt-BR")} eu sugiro: ${partes}. Essa é uma ideia inicial calibrada pro seu perfil — pra ver os ativos específicos de cada classe, dá uma olhada na aba Investimentos, dentro de "Minha Carteira".`;
+    }
+
     if (q.match(/gastar hoje|posso gastar|gasto hoje|sair|saída|saida|balada|role|rolê/)) {
       if (orcamentoDiario <= 0) {
         return "Hoje seu orçamento diário está zerado ou negativo — os gastos já passaram do que sobrava pro mês. O ideal agora é não gastar nada extra e rever os custos, pra não fechar o mês no vermelho.";
