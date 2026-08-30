@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { Lock } from "lucide-react";
-import BussolaEducacaoDeInvestimentos from "./apps/BussolaEducacaoDeInvestimentos.jsx";
+import MaatFinancas from "./apps/MaatFinancas.jsx";
 
 // ---------- Trava de acesso simples ----------
 // Troque a senha aqui antes de mandar o link pros seus testadores.
@@ -73,7 +73,7 @@ export default function App() {
     <PasswordGate>
       <BrowserRouter>
         <Routes>
-          <Route path="*" element={<BussolaEducacaoDeInvestimentos />} />
+          <Route path="*" element={<MaatFinancas />} />
         </Routes>
       </BrowserRouter>
     </PasswordGate>
