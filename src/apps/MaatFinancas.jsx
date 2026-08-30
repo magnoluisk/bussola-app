@@ -1452,35 +1452,51 @@ export default function BussolaEducacaoDeInvestimentos() {
 
   function detectarComandoDeRegistro(transcript) {
     const text = transcript.toLowerCase();
-    // qualquer verbo de ação (registrar, acrescentar, adicionar, lançar...) conta como comando,
-    // não só as palavras específicas de antes
     const acaoGenerica = /registra|anota|acrescent|adicion|coloc|lan[çc]|inclui|põe/;
-    const ehReceitaPalavra = /receb[ie]|ganhei|entrou|renda extra|freela\b|bico\b|sal[áa]rio|receita|entrada/;
+    const ehReceitaPalavra = /receb[ie]|ganhei|entrou|freela\b|bico\b|sal[áa]rio|receita|entrada/;
     const ehDespesaPalavra = /gastei|comprei|paguei|despesa|\bgasto\b/;
+
+    // a pessoa pode dizer a categoria explicitamente logo no início da frase
+    const categoriaExplicita = text.match(/\b(fixa|fixo)\b/) ? "fixa"
+      : text.match(/vari[áa]vel/) ? "variavel"
+      : text.match(/\bextra\b/) ? "extra"
+      : null;
 
     const pareceReceita = ehReceitaPalavra.test(text);
     const pareceDespesa = ehDespesaPalavra.test(text);
     const temAcao = acaoGenerica.test(text);
 
-    // só entra em modo "comando" se tiver ação/verbo de registro OU palavra específica de receita/despesa
-    if (!temAcao && !pareceReceita && !pareceDespesa) return null;
+    // só entra em modo "comando" se tiver algum sinal de que a pessoa quer registrar algo
+    if (!pareceReceita && !pareceDespesa && !categoriaExplicita && !temAcao) return null;
 
+    // receita tem prioridade só quando não tem sinal nenhum de despesa junto
     if (pareceReceita && !pareceDespesa) {
       const parsed = parseVoiceRenda(text);
+      const tipoFinal = categoriaExplicita || parsed.tipo;
       if (parsed.valor != null) {
         const nomeLimpo = limparNomeDoComando(transcript);
-        return { tipo: "receita", parsed: { ...parsed, nome: nomeLimpo || parsed.nome } };
+        return { tipo: "receita", parsed: { ...parsed, tipo: tipoFinal, nome: nomeLimpo || parsed.nome } };
       }
+      return { tipo: "erro_receita" };
     }
 
-    // padrão: se não ficou claro que é receita, trata como despesa (é o caso mais comum)
+    // custo fixo — vai pra lista de Custos Fixos, não pra Variável/Extra
+    if (categoriaExplicita === "fixa" && !pareceReceita) {
+      const { valor } = extrairValorMonetario(text);
+      if (valor == null) return { tipo: "erro_despesa" };
+      const nomeLimpo = limparNomeDoComando(transcript);
+      return { tipo: "fixo", parsed: { nome: nomeLimpo || "Custo fixo", valor } };
+    }
+
     const parsed = parseVoiceExpense(text);
     if (parsed.valor != null) {
       const nomeLimpo = limparNomeDoComando(transcript);
       const categoriaLabel = EXPENSE_CATEGORIES.find((c) => c.key === parsed.categoria)?.label || "Despesa";
-      return { tipo: "despesa", parsed: { ...parsed, nome: nomeLimpo || categoriaLabel } };
+      // se a pessoa falou "variável" ou "extra" explicitamente, isso vale mais que o palpite automático
+      const tipoFinal = categoriaExplicita === "variavel" ? "variavel" : categoriaExplicita === "extra" ? "extra" : parsed.tipo;
+      return { tipo: "despesa", parsed: { ...parsed, tipo: tipoFinal, nome: nomeLimpo || categoriaLabel } };
     }
-    return null;
+    return { tipo: "erro_despesa" };
   }
 
   function speakConsultorResponse(text) {
@@ -1515,15 +1531,22 @@ export default function BussolaEducacaoDeInvestimentos() {
         // se for um comando de registrar despesa/receita, executa direto e avisa
         const comando = detectarComandoDeRegistro(transcript);
         let response;
-        if (comando && comando.tipo === "despesa") {
+        if (comando && comando.tipo === "fixo") {
+          setCustosFixos((prev) => [...prev, { id: Date.now(), nome: comando.parsed.nome, valor: comando.parsed.valor, diaVencimento: null, pago: false }]);
+          response = `Prontinho, registrei "${comando.parsed.nome}" de R$ ${comando.parsed.valor.toLocaleString("pt-BR")} nos seus Custos Fixos.`;
+        } else if (comando && comando.tipo === "despesa") {
           setGastosVariaveis((prev) => [{ id: Date.now(), nome: comando.parsed.nome, valor: comando.parsed.valor, tipo: comando.parsed.tipo }, ...prev]);
-          response = `Prontinho, registrei "${comando.parsed.nome}" de R$ ${comando.parsed.valor.toLocaleString("pt-BR")} nas suas despesas.`;
+          response = `Prontinho, registrei "${comando.parsed.nome}" de R$ ${comando.parsed.valor.toLocaleString("pt-BR")} em Custo ${comando.parsed.tipo === "extra" ? "Extra" : "Variável"}.`;
         } else if (comando && comando.tipo === "receita") {
           const item = { id: Date.now(), nome: comando.parsed.nome, valor: comando.parsed.valor };
           if (comando.parsed.tipo === "fixa") setRendaFixaItens((prev) => [...prev, item]);
           else if (comando.parsed.tipo === "variavel") setRendaVariavelItens((prev) => [...prev, item]);
           else setRendaExtraItens((prev) => [...prev, item]);
           response = `Prontinho, registrei R$ ${comando.parsed.valor.toLocaleString("pt-BR")} como renda ${comando.parsed.tipo === "fixa" ? "fixa" : comando.parsed.tipo === "variavel" ? "variável" : "extra"}.`;
+        } else if (comando && comando.tipo === "erro_despesa") {
+          response = `Não entendi o que você quis dizer. Fale nessa sequência: categoria (fixa, variável ou extra) → "gastei" → valor → com o quê. Exemplo: "Despesa variável, acabei de gastar 250 reais e 37 centavos no supermercado."`;
+        } else if (comando && comando.tipo === "erro_receita") {
+          response = `Não entendi o que você quis dizer. Fale nessa sequência: categoria (fixa, variável ou extra) → "recebi" → valor → de onde veio. Exemplo: "Receita extra, recebi 500 reais numa prestação de serviço que fiz" ou "numa venda que eu fiz."`;
         } else {
           response = buildConsultorResponse(transcript);
         }
@@ -1577,6 +1600,9 @@ export default function BussolaEducacaoDeInvestimentos() {
             <AccordionItem id="rumo" title="Você sabia que aqui dentro você tem uma parceira? A Maat Assistente? Aprenda como ela funciona" isOpen={welcomeSection === "rumo"} onToggle={setWelcomeSection}>
               <p className="text-xs leading-relaxed" style={{ color: "var(--paper)" }}>
                 Ela é sua agente financeira de bolso — está sempre disponível pra você no <strong style={{ color: "var(--gold)" }}>botão flutuante no canto da tela</strong>, em qualquer parte do app. É só clicar e falar. Ela tira suas dúvidas do dia a dia antes de gastar, explica qualquer função do aplicativo, e também registra suas despesas e receitas por voz. Tá na correria e não consegue digitar? Pede pra ela por voz que ela registra a informação. Você só precisa confirmar depois.
+              </p>
+              <p className="text-xs leading-relaxed mt-2" style={{ color: "var(--paper)" }}>
+                Pra registrar um gasto certinho, fale nessa ordem: <strong style={{ color: "var(--gold)" }}>categoria → "gastei" → valor → com o quê</strong>. Exemplo: <em>"Despesa variável, acabei de gastar 250 reais e 37 centavos no supermercado."</em>
               </p>
             </AccordionItem>
 
@@ -4949,9 +4975,20 @@ export default function BussolaEducacaoDeInvestimentos() {
               <button onClick={() => setShowMaatFlutuante(false)}><X size={18} color="var(--paper-dim)" /></button>
             </div>
 
-            <p className="text-xs leading-relaxed mb-3" style={{ color: "var(--paper-dim)" }}>
+            <p className="text-xs leading-relaxed mb-2" style={{ color: "var(--paper-dim)" }}>
               Pergunte qualquer coisa sobre sua vida financeira, sobre como usar o app, ou peça pra eu registrar uma despesa ou receita — de qualquer tela, a qualquer momento.
             </p>
+
+            <div className="mb-3 p-2.5 rounded-sm" style={{ background: "rgba(190,154,92,0.08)", border: "1px solid rgba(190,154,92,0.3)" }}>
+              <p className="text-[11px] font-semibold mb-1.5" style={{ color: "var(--gold)" }}>
+                Pra registrar um gasto certinho, fale nessa ordem: categoria → "gastei" → valor → com o quê.
+              </p>
+              <ul className="space-y-1 text-[11px] leading-relaxed" style={{ color: "var(--paper-dim)" }}>
+                <li>"Despesa <strong style={{ color: "var(--paper)" }}>extra</strong>, acabei de gastar 30 reais porque o pneu do meu carro furou."</li>
+                <li>"Despesa <strong style={{ color: "var(--paper)" }}>variável</strong>, acabei de gastar 250 reais e 37 centavos no supermercado."</li>
+                <li>"Despesa <strong style={{ color: "var(--paper)" }}>fixa</strong>, acabei de gastar 200 reais com minha conta de luz."</li>
+              </ul>
+            </div>
 
             <div className="mb-3">
               <div className="flex gap-2">
