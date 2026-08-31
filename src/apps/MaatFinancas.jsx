@@ -1452,6 +1452,16 @@ export default function BussolaEducacaoDeInvestimentos() {
       return `Seu orçamento hoje está em dia. Você pode gastar até R$ ${orcamentoDiario.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} sem comprometer o resto do mês, considerando que faltam ${diasRestantes} dias e seu saldo disponível é de R$ ${saldoDisponivelMes.toLocaleString("pt-BR")}. Se você ultrapassar esse valor hoje, vai precisar economizar um pouco mais nos próximos dias pra compensar.`;
     }
 
+    // "salário baixo, como dou a volta na dívida?" — orienta pro Guia da Prosperidade
+    if (q.match(/sal[áa]rio.*(baixo|pouco|apertado|n[ãa]o.*(alto|suficiente))|ganhar mais (dinheiro|grana)|aumentar (minha )?renda|complementar a renda|renda extra|como.*dar a volta/)) {
+      let resposta = "Entendo — com o salário apertado, qualquer dívida pesa bem mais. Duas frentes ajudam bastante aqui: ";
+      if (dividas.length > 0) {
+        resposta += `focar em quitar a dívida mais cara primeiro (você tem ${dividas.length} cadastrada${dividas.length > 1 ? "s" : ""}, dá uma olhada em Quitação de Dívida pra ver o plano), e `;
+      }
+      resposta += `buscar uma renda extra, além do que você já ganha. Pra isso, dentro de Vida Financeira tem o Guia da Prosperidade — lá a gente te dá ideias de renda extra e pequenos negócios, calibradas pelo seu perfil e pelas habilidades que você descrever. Vale muito a pena dar uma olhada por lá.`;
+      return resposta;
+    }
+
     if (q.match(/d[íi]vida|atraso|cart[ãa]o/)) {
       if (dividas.length === 0) return "Você não tem nenhuma dívida cadastrada agora. Isso é ótimo — foco em manter a reserva de emergência e, se quiser, começar a investir.";
       return `Você tem ${dividas.length} dívida${dividas.length > 1 ? "s" : ""} cadastrada${dividas.length > 1 ? "s" : ""}, somando R$ ${totalDividas.toLocaleString("pt-BR")}. No ritmo atual, com o extra que você tem disponível pra pagar, você fica livre delas em aproximadamente ${debtPayoff.meses} meses.${temDividaCara ? " Atenção: uma delas tem juro alto, priorize quitar essa primeiro." : ""}`;
