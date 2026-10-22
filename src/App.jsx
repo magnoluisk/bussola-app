@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from "react";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { Lock } from "lucide-react";
-import MaatFinancas from "./apps/MaatFinancas.jsx";
+import Zaya from "./apps/Zaya.jsx";
 
 // ---------- Trava de acesso simples ----------
 // Troque a senha aqui antes de mandar o link pros seus testadores.
 // Não é criptografia militar, é só um filtro pra impedir acesso casual
 // de quem não recebeu o link com essa senha de você.
-const SITE_PASSWORD = "maatfase3";
+const SITE_PASSWORD = "zaya2026";
 
 function PasswordGate({ children }) {
   const [unlocked, setUnlocked] = useState(false);
@@ -15,7 +15,7 @@ function PasswordGate({ children }) {
   const [error, setError] = useState(false);
 
   useEffect(() => {
-    if (sessionStorage.getItem("bussola_unlocked") === "true") {
+    if (sessionStorage.getItem("zaya_unlocked") === "true") {
       setUnlocked(true);
     }
   }, []);
@@ -23,7 +23,7 @@ function PasswordGate({ children }) {
   function handleSubmit(e) {
     e.preventDefault();
     if (input === SITE_PASSWORD) {
-      sessionStorage.setItem("bussola_unlocked", "true");
+      sessionStorage.setItem("zaya_unlocked", "true");
       setUnlocked(true);
       setError(false);
     } else {
@@ -36,7 +36,7 @@ function PasswordGate({ children }) {
   return (
     <div
       className="w-full min-h-screen flex flex-col items-center justify-center px-5"
-      style={{ background: "#14291F", color: "#EDE6D6", fontFamily: "'Inter', sans-serif" }}
+      style={{ background: "#0A1E3F", color: "#EDE6D6", fontFamily: "'Inter', sans-serif" }}
     >
       <Lock size={28} color="#BE9A5C" className="mb-3" />
       <h1 className="text-2xl font-bold mb-2 text-center">Acesso restrito</h1>
@@ -51,7 +51,7 @@ function PasswordGate({ children }) {
           placeholder="Senha"
           autoFocus
           className="w-full text-sm px-3 py-2.5 rounded-sm mb-3"
-          style={{ background: "#1C3527", border: `1px solid ${error ? "#B14A34" : "rgba(237,230,214,0.25)"}`, color: "#EDE6D6" }}
+          style={{ background: "#12294F", border: `1px solid ${error ? "#B14A34" : "rgba(237,230,214,0.25)"}`, color: "#EDE6D6" }}
         />
         {error && (
           <p className="text-xs mb-3" style={{ color: "#B14A34" }}>Senha incorreta, tenta de novo.</p>
@@ -59,7 +59,7 @@ function PasswordGate({ children }) {
         <button
           type="submit"
           className="w-full text-sm font-semibold px-4 py-2.5 rounded-sm"
-          style={{ background: "#BE9A5C", color: "#14291F" }}
+          style={{ background: "#BE9A5C", color: "#0A1E3F" }}
         >
           Entrar
         </button>
@@ -73,7 +73,7 @@ export default function App() {
     <PasswordGate>
       <BrowserRouter>
         <Routes>
-          <Route path="*" element={<MaatFinancas />} />
+          <Route path="*" element={<Zaya />} />
         </Routes>
       </BrowserRouter>
     </PasswordGate>
