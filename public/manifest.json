@@ -1,10 +1,10 @@
 {
-  "name": "Bússola — Educação Financeira e de Investimentos",
-  "short_name": "Bússola",
+  "name": "Zaya — Finanças e Investimentos",
+  "short_name": "Zaya",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#14291F",
-  "theme_color": "#14291F",
+  "background_color": "#0A1E3F",
+  "theme_color": "#0A1E3F",
   "orientation": "portrait",
   "icons": []
 }
