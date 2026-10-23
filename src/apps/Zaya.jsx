@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import { Check, X, TrendingUp, TrendingDown, ChevronRight, Globe2, Shield, Zap, Scale, HelpCircle, ArrowRight, ShoppingCart, ExternalLink, Layers, PiggyBank, Bitcoin, AlertTriangle, FileText, BookOpen, Brain, Receipt, AlertCircle, Mail, RefreshCw, Wallet, CreditCard, Umbrella, Mic, MicOff, Trash2, Compass, PieChart, Landmark, Building2, Eye, EyeOff, Link2, Pencil, Search, Headphones, Volume2, Calendar, Flag, Bell, Target } from "lucide-react";
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
 
@@ -1254,6 +1254,10 @@ export default function BussolaEducacaoDeInvestimentos() {
   const [consultorQuestion, setConsultorQuestion] = useState("");
   const [consultorResponse, setConsultorResponse] = useState("");
   const [consultorModoResposta, setConsultorModoResposta] = useState("voz");
+  const [consultorPensando, setConsultorPensando] = useState(false);
+  const [consultorTexto, setConsultorTexto] = useState("");
+  const consultorReqId = useRef(0);
+  const consultorHistorico = useRef([]);
 
   // ---------- Motor único de reconhecimento de voz (com trava de segurança contra microfone travado) ----------
   function iniciarReconhecimentoDeVoz({ onResult, onStart, onStop, timeoutMs = 18000, minTimeMs = 8000 }) {
@@ -1584,39 +1588,116 @@ export default function BussolaEducacaoDeInvestimentos() {
     window.speechSynthesis.speak(utterance);
   }
 
+  // Resumo dos dados da pessoa, enviado junto com a pergunta pra IA responder de forma personalizada
+  function montarContextoIA() {
+    const brl = (n) => `R$ ${Number(n || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const linhas = [
+      `Perfil de investidor: ${profile.label}`,
+      `Renda mensal: ${brl(rendaMensal)}`,
+      `Custos fixos do mês: ${brl(totalCustosFixos)}`,
+      `Sobra mensal (renda menos custos fixos): ${brl(sobraMensal)}`,
+      `Gastos variáveis e extras já registrados no mês: ${brl(totalGastoVariavelMes)}`,
+      `Saldo disponível do mês: ${brl(saldoDisponivelMes)}`,
+      `Orçamento de hoje: ${brl(orcamentoDiario)} (faltam ${diasRestantes} dias no mês)`,
+      `Conta corrente: ${brl(contaCorrente)}; em espécie: ${brl(saldoEspecie)}; poupança: ${brl(saldoPoupanca)}; investido: ${brl(totalInvestido)}`,
+      dividas.length > 0
+        ? `Dívidas: ${dividas.length} cadastrada(s), total ${brl(totalDividas)}${temDividaCara ? " — há dívida com juro acima de 5% ao mês" : ""}`
+        : "Dívidas: nenhuma cadastrada",
+      `Reserva de emergência: ${brl(reservaAtual)} de uma meta de ${brl(metaReserva)} (${progressoReserva.toFixed(0)}%)`,
+    ];
+    if (objetivos.length > 0) {
+      linhas.push("Objetivos: " + objetivos.map((o) => `${o.nome} (meta ${brl(o.valorAlvo)}, já tem ${brl(o.valorAtual)}, prazo ${o.prazoMeses || "?"} meses)`).join("; "));
+    }
+    if (sobraMensal > 0 && !temDividaCara) {
+      const aloc = computeAllocation(profileKey, sobraMensal);
+      const partes = Object.keys(ASSET_CLASS_META).filter((k) => aloc[k] > 0).map((k) => `${aloc[k]}% em ${ASSET_CLASS_META[k].label}`).join(", ");
+      linhas.push(`Divisão educativa sugerida para a sobra mensal, pelo perfil: ${partes}`);
+    }
+    return linhas.join("\n");
+  }
+
+  // Pergunta pra IA (função /api/assistente). Se falhar por qualquer motivo, devolve null e o app usa as respostas prontas.
+  async function perguntarParaIA(pergunta) {
+    const controle = new AbortController();
+    const timer = setTimeout(() => controle.abort(), 12000);
+    try {
+      const r = await fetch("/api/assistente", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        signal: controle.signal,
+        body: JSON.stringify({ pergunta, contexto: montarContextoIA(), historico: consultorHistorico.current }),
+      });
+      if (!r.ok) return null;
+      const dados = await r.json();
+      return typeof dados.resposta === "string" && dados.resposta.trim() ? dados.resposta.trim() : null;
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  function guardarNoHistorico(pergunta, resposta) {
+    consultorHistorico.current = [...consultorHistorico.current, { papel: "user", texto: pergunta }, { papel: "assistant", texto: resposta }].slice(-6);
+  }
+
+  // Processa uma pergunta (falada ou digitada): registra gasto/receita direto, ou responde com a IA
+  async function processarPerguntaConsultor(transcript) {
+    const meuId = ++consultorReqId.current;
+    setConsultorQuestion(transcript);
+    setConsultorPensando(false);
+
+    const comando = detectarComandoDeRegistro(transcript);
+    let response;
+    if (comando && comando.tipo === "fixo") {
+      setCustosFixos((prev) => [...prev, { id: Date.now(), nome: comando.parsed.nome, valor: comando.parsed.valor, diaVencimento: null, pago: false }]);
+      response = `Prontinho, registrei "${comando.parsed.nome}" de R$ ${comando.parsed.valor.toLocaleString("pt-BR")} nos seus Custos Fixos.`;
+    } else if (comando && comando.tipo === "despesa") {
+      setGastosVariaveis((prev) => [{ id: Date.now(), nome: comando.parsed.nome, valor: comando.parsed.valor, tipo: comando.parsed.tipo }, ...prev]);
+      response = `Prontinho, registrei "${comando.parsed.nome}" de R$ ${comando.parsed.valor.toLocaleString("pt-BR")} em Custo ${comando.parsed.tipo === "extra" ? "Extra" : "Variável"}.`;
+    } else if (comando && comando.tipo === "receita") {
+      const item = { id: Date.now(), nome: comando.parsed.nome, valor: comando.parsed.valor };
+      if (comando.parsed.tipo === "fixa") setRendaFixaItens((prev) => [...prev, item]);
+      else if (comando.parsed.tipo === "variavel") setRendaVariavelItens((prev) => [...prev, item]);
+      else setRendaExtraItens((prev) => [...prev, item]);
+      response = `Prontinho, registrei R$ ${comando.parsed.valor.toLocaleString("pt-BR")} como renda ${comando.parsed.tipo === "fixa" ? "fixa" : comando.parsed.tipo === "variavel" ? "variável" : "extra"}.`;
+    } else if (comando && comando.tipo === "erro_despesa") {
+      response = `Não entendi o que você quis dizer. Fale nessa sequência: categoria (fixa, variável ou extra) → "gastei" → valor → com o quê. Exemplo: "Despesa variável, acabei de gastar 250 reais e 37 centavos no supermercado."`;
+    } else if (comando && comando.tipo === "erro_receita") {
+      response = `Não entendi o que você quis dizer. Fale nessa sequência: categoria (fixa, variável ou extra) → "recebi" → valor → de onde veio. Exemplo: "Receita extra, recebi 500 reais numa prestação de serviço que fiz" ou "numa venda que eu fiz."`;
+    } else {
+      // "sobrou 500, como investir?" — conta exata, feita pelo app (não pela IA)
+      const q = transcript.toLowerCase();
+      const investirComValor = /investir|investimento/.test(q) && extrairValorMonetario(q).valor != null;
+      if (investirComValor) {
+        response = buildConsultorResponse(transcript);
+      } else {
+        setConsultorResponse("");
+        setConsultorPensando(true);
+        const respostaIA = await perguntarParaIA(transcript);
+        if (meuId !== consultorReqId.current) return; // chegou uma pergunta mais nova
+        setConsultorPensando(false);
+        response = respostaIA || buildConsultorResponse(transcript);
+      }
+    }
+
+    guardarNoHistorico(transcript, response);
+    setConsultorResponse(response);
+    if (consultorModoResposta === "voz") speakConsultorResponse(response);
+  }
+
+  function enviarPerguntaDigitada() {
+    const texto = consultorTexto.trim();
+    if (!texto) return;
+    setConsultorTexto("");
+    processarPerguntaConsultor(texto);
+  }
+
   function startVoiceCaptureConsultor() {
     iniciarReconhecimentoDeVoz({
       onStart: () => setIsListeningConsultor(true),
       onStop: () => setIsListeningConsultor(false),
-      onResult: (transcript) => {
-        setConsultorQuestion(transcript);
-
-        // se for um comando de registrar despesa/receita, executa direto e avisa
-        const comando = detectarComandoDeRegistro(transcript);
-        let response;
-        if (comando && comando.tipo === "fixo") {
-          setCustosFixos((prev) => [...prev, { id: Date.now(), nome: comando.parsed.nome, valor: comando.parsed.valor, diaVencimento: null, pago: false }]);
-          response = `Prontinho, registrei "${comando.parsed.nome}" de R$ ${comando.parsed.valor.toLocaleString("pt-BR")} nos seus Custos Fixos.`;
-        } else if (comando && comando.tipo === "despesa") {
-          setGastosVariaveis((prev) => [{ id: Date.now(), nome: comando.parsed.nome, valor: comando.parsed.valor, tipo: comando.parsed.tipo }, ...prev]);
-          response = `Prontinho, registrei "${comando.parsed.nome}" de R$ ${comando.parsed.valor.toLocaleString("pt-BR")} em Custo ${comando.parsed.tipo === "extra" ? "Extra" : "Variável"}.`;
-        } else if (comando && comando.tipo === "receita") {
-          const item = { id: Date.now(), nome: comando.parsed.nome, valor: comando.parsed.valor };
-          if (comando.parsed.tipo === "fixa") setRendaFixaItens((prev) => [...prev, item]);
-          else if (comando.parsed.tipo === "variavel") setRendaVariavelItens((prev) => [...prev, item]);
-          else setRendaExtraItens((prev) => [...prev, item]);
-          response = `Prontinho, registrei R$ ${comando.parsed.valor.toLocaleString("pt-BR")} como renda ${comando.parsed.tipo === "fixa" ? "fixa" : comando.parsed.tipo === "variavel" ? "variável" : "extra"}.`;
-        } else if (comando && comando.tipo === "erro_despesa") {
-          response = `Não entendi o que você quis dizer. Fale nessa sequência: categoria (fixa, variável ou extra) → "gastei" → valor → com o quê. Exemplo: "Despesa variável, acabei de gastar 250 reais e 37 centavos no supermercado."`;
-        } else if (comando && comando.tipo === "erro_receita") {
-          response = `Não entendi o que você quis dizer. Fale nessa sequência: categoria (fixa, variável ou extra) → "recebi" → valor → de onde veio. Exemplo: "Receita extra, recebi 500 reais numa prestação de serviço que fiz" ou "numa venda que eu fiz."`;
-        } else {
-          response = buildConsultorResponse(transcript);
-        }
-
-        setConsultorResponse(response);
-        if (consultorModoResposta === "voz") speakConsultorResponse(response);
-      },
+      onResult: (transcript) => processarPerguntaConsultor(transcript),
     });
   }
 
@@ -2604,7 +2685,7 @@ export default function BussolaEducacaoDeInvestimentos() {
             <span className="text-sm font-bold" style={{ color: "var(--gold)", fontFamily: "'Roboto Slab', serif" }}>Zaya Assistente</span>
           </div>
           <p className="text-xs mb-3" style={{ color: "var(--paper-dim)" }}>
-            Pergunte por voz sobre sua vida financeira — ex: "hoje vou sair com amigos, quanto posso gastar sem comprometer meu orçamento?"
+            Pergunte por voz ou por escrito sobre sua vida financeira ou sobre como usar o app — ex: "hoje vou sair com amigos, quanto posso gastar sem comprometer meu orçamento?" ou "como cadastro um objetivo?"
           </p>
 
           <div className="mb-3">
@@ -2635,6 +2716,25 @@ export default function BussolaEducacaoDeInvestimentos() {
             {isListeningConsultor ? <MicOff size={16} /> : <Mic size={16} />}
             {isListeningConsultor ? "Ouvindo... fale sua pergunta" : "Falar com a Zaya Assistente"}
           </button>
+          <form onSubmit={(e) => { e.preventDefault(); enviarPerguntaDigitada(); }} className="flex gap-2 mt-3">
+            <input
+              type="text"
+              value={consultorTexto}
+              onChange={(e) => setConsultorTexto(e.target.value)}
+              placeholder="Ou digite sua pergunta aqui..."
+              maxLength={500}
+              className="flex-1 min-w-0 text-xs px-3 py-2 rounded-sm outline-none"
+              style={{ background: "var(--ink)", border: "1px solid rgba(237,230,214,0.25)", color: "var(--paper)" }}
+            />
+            <button
+              type="submit"
+              disabled={consultorPensando || !consultorTexto.trim()}
+              className="text-xs font-semibold px-3 rounded-sm"
+              style={{ background: "var(--gold)", color: "var(--ink)", opacity: consultorPensando || !consultorTexto.trim() ? 0.5 : 1 }}
+            >
+              Enviar
+            </button>
+          </form>
 
           {!voiceSupported && (
             <p className="text-[10px] mt-2" style={{ color: "var(--paper-dim)" }}>Reconhecimento de voz não suportado nesse navegador.</p>
@@ -2647,13 +2747,13 @@ export default function BussolaEducacaoDeInvestimentos() {
               </p>
               <div className="flex items-start gap-2 p-3 rounded-sm" style={{ background: "var(--panel)" }}>
                 <Volume2 size={14} color="var(--gold)" className="shrink-0 mt-0.5" />
-                <p className="text-sm leading-relaxed" style={{ color: "var(--paper)" }}>{consultorResponse}</p>
+                <p className="text-sm leading-relaxed" style={{ color: "var(--paper)" }}>{consultorPensando ? "A Zaya está pensando..." : consultorResponse}</p>
               </div>
             </div>
           )}
 
           <p className="mt-3 text-[10px] leading-relaxed" style={{ color: "var(--paper-dim)" }}>
-            A Zaya Assistente responde com base nos dados que você já cadastrou aqui no app — hoje ela reconhece perguntas sobre orçamento do dia a dia, dívidas, reserva de emergência e saldo. A intenção da Zaya Assistente é te orientar no seu dia a dia, pra evitar gastos impulsivos e desnecessários. Se a resposta em áudio não tocar automaticamente, seu navegador pode não suportar leitura de voz.
+            A Zaya Assistente responde com base nos dados que você já cadastrou aqui no app e no manual do Zaya: tira dúvidas sobre como usar cada recurso, orienta seu dia a dia pra evitar gastos impulsivos e registra despesas e receitas por voz. O conteúdo é educativo, não é recomendação individual de investimento. Se a resposta em áudio não tocar automaticamente, seu navegador pode não suportar leitura de voz.
           </p>
         </div>
         )}
@@ -5142,6 +5242,25 @@ export default function BussolaEducacaoDeInvestimentos() {
               {isListeningConsultor ? <MicOff size={16} /> : <Mic size={16} />}
               {isListeningConsultor ? "Ouvindo... fale agora" : "Falar com a Zaya"}
             </button>
+            <form onSubmit={(e) => { e.preventDefault(); enviarPerguntaDigitada(); }} className="flex gap-2 mt-3">
+              <input
+                type="text"
+                value={consultorTexto}
+                onChange={(e) => setConsultorTexto(e.target.value)}
+                placeholder="Ou digite sua pergunta aqui..."
+                maxLength={500}
+                className="flex-1 min-w-0 text-xs px-3 py-2 rounded-sm outline-none"
+                style={{ background: "var(--ink)", border: "1px solid rgba(237,230,214,0.25)", color: "var(--paper)" }}
+              />
+              <button
+                type="submit"
+                disabled={consultorPensando || !consultorTexto.trim()}
+                className="text-xs font-semibold px-3 rounded-sm"
+                style={{ background: "var(--gold)", color: "var(--ink)", opacity: consultorPensando || !consultorTexto.trim() ? 0.5 : 1 }}
+              >
+                Enviar
+              </button>
+            </form>
 
             {!voiceSupported && (
               <p className="text-[10px] mt-2" style={{ color: "var(--paper-dim)" }}>Reconhecimento de voz não suportado nesse navegador.</p>
@@ -5154,7 +5273,7 @@ export default function BussolaEducacaoDeInvestimentos() {
                 </p>
                 <div className="flex items-start gap-2 p-3 rounded-sm" style={{ background: "var(--ink)" }}>
                   <Volume2 size={14} color="var(--gold)" className="shrink-0 mt-0.5" />
-                  <p className="text-sm leading-relaxed" style={{ color: "var(--paper)" }}>{consultorResponse}</p>
+                  <p className="text-sm leading-relaxed" style={{ color: "var(--paper)" }}>{consultorPensando ? "A Zaya está pensando..." : consultorResponse}</p>
                 </div>
               </div>
             )}
