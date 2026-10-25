@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
-import { Check, X, TrendingUp, TrendingDown, ChevronRight, Globe2, Shield, Zap, Scale, HelpCircle, ArrowRight, ShoppingCart, ExternalLink, Layers, PiggyBank, Bitcoin, AlertTriangle, FileText, BookOpen, Brain, Receipt, AlertCircle, Mail, RefreshCw, Wallet, CreditCard, Umbrella, Mic, MicOff, Trash2, Compass, PieChart, Landmark, Building2, Eye, EyeOff, Link2, Pencil, Search, Headphones, Volume2, Calendar, Flag, Bell, Target } from "lucide-react";
+import { Check, X, TrendingUp, TrendingDown, ChevronRight, Globe2, Shield, Zap, Scale, HelpCircle, ArrowRight, ShoppingCart, ExternalLink, Layers, PiggyBank, Bitcoin, AlertTriangle, FileText, BookOpen, Brain, Receipt, AlertCircle, Mail, RefreshCw, Wallet, CreditCard, Umbrella, Mic, MicOff, Trash2, Compass, PieChart, Landmark, Building2, Eye, EyeOff, Link2, Pencil, Search, Headphones, Volume2, Calendar, Flag, Bell, Target, Send } from "lucide-react";
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
 
 // ---------- Dados de exemplo (mock) ----------
@@ -1257,11 +1257,13 @@ export default function BussolaEducacaoDeInvestimentos() {
   const [consultorPensando, setConsultorPensando] = useState(false);
   const [consultorTexto, setConsultorTexto] = useState("");
   const [consultorAviso, setConsultorAviso] = useState("");
+  const [consultorParcial, setConsultorParcial] = useState("");
+  const gravadorConsultor = useRef(null);
   const consultorReqId = useRef(0);
   const consultorHistorico = useRef([]);
 
   // ---------- Motor único de reconhecimento de voz (com trava de segurança contra microfone travado) ----------
-  function iniciarReconhecimentoDeVoz({ onResult, onStart, onStop, timeoutMs = 18000, minTimeMs = 8000 }) {
+  function iniciarReconhecimentoDeVoz({ onResult, onStart, onStop, onParcial, timeoutMs = 18000, minTimeMs = 8000, manual = false }) {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
       setVoiceSupported(false);
@@ -1273,12 +1275,17 @@ export default function BussolaEducacaoDeInvestimentos() {
     let jaFinalizou = false;
     let tentativas = 0;
     let sessaoAtual = null;
+    let parcialAtual = "";
+    let pedidoParar = false;
+    let descartar = false;
 
     const finalizar = () => {
       if (jaFinalizou) return;
       jaFinalizou = true;
       clearTimeout(timerSeguranca);
-      if (transcriptAcumulado.trim()) onResult(transcriptAcumulado.trim());
+      // junta o que já foi confirmado com o trecho final que ainda estava "em andamento"
+      const textoFinal = (transcriptAcumulado + " " + parcialAtual).trim();
+      if (!descartar && textoFinal) onResult(textoFinal);
       onStop && onStop();
     };
 
@@ -1291,20 +1298,40 @@ export default function BussolaEducacaoDeInvestimentos() {
     function criarSessao() {
       const r = new SpeechRecognition();
       r.lang = "pt-BR";
-      r.interimResults = false;
+      r.interimResults = manual; // no modo manual mostra o que está sendo entendido, em tempo real
       r.maxAlternatives = 1;
       // contínuo: não corta na primeira pausa que a pessoa fizer no meio da frase
       r.continuous = true;
 
       r.onresult = (event) => {
+        let parcial = "";
         for (let i = event.resultIndex; i < event.results.length; i++) {
           if (event.results[i].isFinal) {
             transcriptAcumulado = (transcriptAcumulado + " " + event.results[i][0].transcript).trim();
+          } else {
+            parcial += event.results[i][0].transcript;
           }
         }
+        parcialAtual = parcial.trim();
+        if (onParcial) onParcial((transcriptAcumulado + " " + parcialAtual).trim());
       };
       r.onerror = () => {};
       r.onend = () => {
+        // modo manual: continua escutando até a pessoa tocar de novo (ou até a trava de segurança)
+        if (manual) {
+          tentativas++;
+          if (!pedidoParar && !jaFinalizou && tentativas < 40) {
+            try {
+              sessaoAtual = criarSessao();
+              sessaoAtual.start();
+            } catch (e) {
+              finalizar();
+            }
+            return;
+          }
+          finalizar();
+          return;
+        }
         const passou = Date.now() - inicio;
         tentativas++;
         // se ainda não completou o tempo mínimo de escuta, reabre uma nova sessão sozinho,
@@ -1330,7 +1357,21 @@ export default function BussolaEducacaoDeInvestimentos() {
     } catch (e) {
       finalizar();
     }
-    return sessaoAtual;
+    return {
+      // "enviar": pára de escutar e manda o que foi falado
+      parar: () => {
+        pedidoParar = true;
+        try { sessaoAtual && sessaoAtual.stop(); } catch (e) {}
+        setTimeout(finalizar, 2500); // garantia: se o navegador não avisar o fim, envia mesmo assim
+      },
+      // "cancelar": descarta o que foi falado
+      cancelar: () => {
+        descartar = true;
+        pedidoParar = true;
+        try { sessaoAtual && sessaoAtual.abort(); } catch (e) {}
+        finalizar();
+      },
+    };
   }
 
   function startVoiceCapture() {
@@ -1715,13 +1756,32 @@ export default function BussolaEducacaoDeInvestimentos() {
     processarPerguntaConsultor(texto);
   }
 
+  // Estilo WhatsApp: 1º toque começa a gravar, 2º toque envia.
   function startVoiceCaptureConsultor() {
+    if (consultorPensando) return;
+    if (isListeningConsultor && gravadorConsultor.current) {
+      gravadorConsultor.current.parar();
+      return;
+    }
     liberarVozDoNavegador();
-    iniciarReconhecimentoDeVoz({
+    window.speechSynthesis && window.speechSynthesis.cancel(); // se ela estiver falando, para pra você falar
+    setConsultorParcial("");
+    gravadorConsultor.current = iniciarReconhecimentoDeVoz({
+      manual: true,
+      timeoutMs: 90000,
       onStart: () => setIsListeningConsultor(true),
-      onStop: () => setIsListeningConsultor(false),
+      onStop: () => {
+        setIsListeningConsultor(false);
+        setConsultorParcial("");
+        gravadorConsultor.current = null;
+      },
+      onParcial: (texto) => setConsultorParcial(texto),
       onResult: (transcript) => processarPerguntaConsultor(transcript),
     });
+  }
+
+  function cancelarGravacaoConsultor() {
+    if (gravadorConsultor.current) gravadorConsultor.current.cancelar();
   }
 
   function startVoiceCaptureSkills() {
@@ -1749,6 +1809,8 @@ export default function BussolaEducacaoDeInvestimentos() {
     >
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Roboto+Slab:wght@400;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap');
+        @keyframes zayaPulse { 0% { box-shadow: 0 0 0 0 rgba(177,74,52,0.55); } 70% { box-shadow: 0 0 0 12px rgba(177,74,52,0); } 100% { box-shadow: 0 0 0 0 rgba(177,74,52,0); } }
+        .zaya-pulse { animation: zayaPulse 1.4s infinite; }
       `}</style>
 
       {/* Guia de boas-vindas — aparece ao abrir o app, reaberto pelo botão do cabeçalho */}
@@ -2733,12 +2795,24 @@ export default function BussolaEducacaoDeInvestimentos() {
 
           <button
             onClick={startVoiceCaptureConsultor}
-            className="flex items-center gap-2 text-sm font-semibold px-4 py-2.5 rounded-sm w-full justify-center transition-colors"
-            style={{ background: isListeningConsultor ? "var(--rust)" : "var(--gold)", color: isListeningConsultor ? "var(--paper)" : "var(--ink)" }}
+            disabled={consultorPensando}
+            className={`flex items-center gap-2 text-sm font-semibold px-4 py-2.5 rounded-sm w-full justify-center transition-colors ${isListeningConsultor ? "zaya-pulse" : ""}`}
+            style={{ background: isListeningConsultor ? "var(--rust)" : "var(--gold)", color: isListeningConsultor ? "var(--paper)" : "var(--ink)", opacity: consultorPensando ? 0.6 : 1 }}
           >
-            {isListeningConsultor ? <MicOff size={16} /> : <Mic size={16} />}
-            {isListeningConsultor ? "Ouvindo... fale sua pergunta" : "Falar com a Zaya Assistente"}
+            {isListeningConsultor ? <Send size={16} /> : <Mic size={16} />}
+            {consultorPensando ? "Zaya pensando..." : isListeningConsultor ? "Toque para enviar" : "Toque para falar"}
           </button>
+          {isListeningConsultor && consultorParcial && (
+            <p className="text-xs mt-2 italic leading-relaxed" style={{ color: "var(--paper)" }}>"{consultorParcial}"</p>
+          )}
+          <div className="flex items-center justify-between mt-1.5 gap-2">
+            <p className="text-[10px]" style={{ color: "var(--paper-dim)" }}>
+              {consultorPensando ? "A Zaya está preparando a resposta..." : isListeningConsultor ? "Fale sua pergunta e, quando terminar, toque no botão pra enviar." : "Toque, fale sua pergunta e toque de novo pra enviar."}
+            </p>
+            {isListeningConsultor && (
+              <button type="button" onClick={cancelarGravacaoConsultor} className="text-[10px] underline shrink-0" style={{ color: "var(--paper-dim)" }}>Cancelar</button>
+            )}
+          </div>
           <form onSubmit={(e) => { e.preventDefault(); enviarPerguntaDigitada(); }} className="flex gap-2 mt-3">
             <input
               type="text"
@@ -5260,12 +5334,24 @@ export default function BussolaEducacaoDeInvestimentos() {
 
             <button
               onClick={startVoiceCaptureConsultor}
-              className="flex items-center gap-2 text-sm font-semibold px-4 py-2.5 rounded-sm w-full justify-center transition-colors"
-              style={{ background: isListeningConsultor ? "var(--rust)" : "var(--gold)", color: isListeningConsultor ? "var(--paper)" : "var(--ink)" }}
+              disabled={consultorPensando}
+              className={`flex items-center gap-2 text-sm font-semibold px-4 py-2.5 rounded-sm w-full justify-center transition-colors ${isListeningConsultor ? "zaya-pulse" : ""}`}
+              style={{ background: isListeningConsultor ? "var(--rust)" : "var(--gold)", color: isListeningConsultor ? "var(--paper)" : "var(--ink)", opacity: consultorPensando ? 0.6 : 1 }}
             >
-              {isListeningConsultor ? <MicOff size={16} /> : <Mic size={16} />}
-              {isListeningConsultor ? "Ouvindo... fale agora" : "Falar com a Zaya"}
+              {isListeningConsultor ? <Send size={16} /> : <Mic size={16} />}
+              {consultorPensando ? "Zaya pensando..." : isListeningConsultor ? "Toque para enviar" : "Toque para falar"}
             </button>
+            {isListeningConsultor && consultorParcial && (
+              <p className="text-xs mt-2 italic leading-relaxed" style={{ color: "var(--paper)" }}>"{consultorParcial}"</p>
+            )}
+            <div className="flex items-center justify-between mt-1.5 gap-2">
+              <p className="text-[10px]" style={{ color: "var(--paper-dim)" }}>
+                {consultorPensando ? "A Zaya está preparando a resposta..." : isListeningConsultor ? "Fale sua pergunta e, quando terminar, toque no botão pra enviar." : "Toque, fale sua pergunta e toque de novo pra enviar."}
+              </p>
+              {isListeningConsultor && (
+                <button type="button" onClick={cancelarGravacaoConsultor} className="text-[10px] underline shrink-0" style={{ color: "var(--paper-dim)" }}>Cancelar</button>
+              )}
+            </div>
             <form onSubmit={(e) => { e.preventDefault(); enviarPerguntaDigitada(); }} className="flex gap-2 mt-3">
               <input
                 type="text"
