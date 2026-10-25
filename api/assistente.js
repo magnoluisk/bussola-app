@@ -63,7 +63,7 @@ export default async function handler(req, res) {
 
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
-    return res.status(405).json({ erro: "Método não permitido." });
+    return res.status(405).json({ erro: "Método não permitido.", codigo: "metodo" });
   }
 
   // Só aceita chamadas vindas do próprio site
@@ -72,18 +72,18 @@ export default async function handler(req, res) {
     let hostOrigem = "";
     try { hostOrigem = new URL(origin).host; } catch { /* ignora */ }
     if (hostOrigem !== req.headers.host) {
-      return res.status(403).json({ erro: "Origem não permitida." });
+      return res.status(403).json({ erro: "Origem não permitida.", codigo: "origem" });
     }
   }
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
-    return res.status(500).json({ erro: "Assistente indisponível no momento." });
+    return res.status(500).json({ erro: "Assistente indisponível no momento.", codigo: "sem_chave" });
   }
 
   const ip = (req.headers["x-forwarded-for"] || "").split(",")[0].trim() || "desconhecido";
   if (estourouLimite(ip)) {
-    return res.status(429).json({ erro: "Muitas perguntas por agora. Tente de novo mais tarde." });
+    return res.status(429).json({ erro: "Muitas perguntas por agora. Tente de novo mais tarde.", codigo: "limite" });
   }
 
   let corpo = req.body;
@@ -92,7 +92,7 @@ export default async function handler(req, res) {
   }
   const pergunta = texto(corpo?.pergunta, MAX_PERGUNTA);
   if (!pergunta) {
-    return res.status(400).json({ erro: "Pergunta vazia." });
+    return res.status(400).json({ erro: "Pergunta vazia.", codigo: "pergunta_vazia" });
   }
   const contexto = texto(corpo?.contexto, MAX_CONTEXTO);
 
@@ -140,7 +140,7 @@ export default async function handler(req, res) {
 
     if (!r.ok) {
       console.error("Anthropic respondeu", r.status, (await r.text()).slice(0, 300));
-      return res.status(502).json({ erro: "Assistente indisponível no momento." });
+      return res.status(502).json({ erro: "Assistente indisponível no momento.", codigo: `anthropic_${r.status}` });
     }
 
     const dados = await r.json();
@@ -153,12 +153,13 @@ export default async function handler(req, res) {
       .trim();
 
     if (!resposta) {
-      return res.status(502).json({ erro: "Resposta vazia." });
+      console.error("Resposta sem texto. stop_reason:", dados.stop_reason, "tipos:", (dados.content || []).map((b) => b.type).join(","));
+      return res.status(502).json({ erro: "Resposta vazia.", codigo: `vazia_${dados.stop_reason || "?"}` });
     }
     return res.status(200).json({ resposta });
   } catch (e) {
     console.error("Falha ao chamar a IA:", e?.name || e);
-    return res.status(504).json({ erro: "A assistente demorou para responder." });
+    return res.status(504).json({ erro: "A assistente demorou para responder.", codigo: e?.name === "AbortError" ? "timeout" : "falha_rede" });
   } finally {
     clearTimeout(timer);
   }
