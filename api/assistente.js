@@ -5,8 +5,10 @@
 import { MANUAL } from "./_manual.js";
 
 const MODELO = "claude-haiku-5-5";
-const MAX_TOKENS = 350;
-const TIMEOUT_MS = 8500;
+// O modelo "pensa" antes de responder e esse pensamento conta no limite. Por isso a folga é grande;
+// o tamanho real da resposta é controlado pelas instruções (no máximo 4 frases).
+const MAX_TOKENS = 2000;
+const TIMEOUT_MS = 12000;
 
 // Limites para proteger o seu gasto
 const MAX_PERGUNTA = 500;
@@ -118,25 +120,35 @@ export default async function handler(req, res) {
   const controle = new AbortController();
   const timer = setTimeout(() => controle.abort(), TIMEOUT_MS);
   try {
-    const r = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      signal: controle.signal,
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: MODELO,
-        max_tokens: MAX_TOKENS,
-        system: [
-          { type: "text", text: INSTRUCOES },
-          // o manual vai em cache: perguntas seguintes pagam bem menos por ele
-          { type: "text", text: "MANUAL DO ZAYA\n\n" + MANUAL, cache_control: { type: "ephemeral" } },
-        ],
-        messages: mensagens,
-      }),
-    });
+    const corpoBase = {
+      model: MODELO,
+      max_tokens: MAX_TOKENS,
+      system: [
+        { type: "text", text: INSTRUCOES },
+        // o manual vai em cache: perguntas seguintes pagam bem menos por ele
+        { type: "text", text: "MANUAL DO ZAYA\n\n" + MANUAL, cache_control: { type: "ephemeral" } },
+      ],
+      messages: mensagens,
+    };
+    const chamar = (corpo) =>
+      fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        signal: controle.signal,
+        headers: {
+          "content-type": "application/json",
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify(corpo),
+      });
+
+    // esforço baixo = pensa pouco e responde rápido (ideal pra respostas curtas faladas)
+    let r = await chamar({ ...corpoBase, output_config: { effort: "low" } });
+    if (r.status === 400) {
+      // se por algum motivo o parâmetro de esforço for recusado, tenta de novo sem ele
+      console.error("400 com effort; tentando sem:", (await r.text()).slice(0, 200));
+      r = await chamar(corpoBase);
+    }
 
     if (!r.ok) {
       console.error("Anthropic respondeu", r.status, (await r.text()).slice(0, 300));
