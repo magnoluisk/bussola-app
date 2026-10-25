@@ -1256,6 +1256,7 @@ export default function BussolaEducacaoDeInvestimentos() {
   const [consultorModoResposta, setConsultorModoResposta] = useState("voz");
   const [consultorPensando, setConsultorPensando] = useState(false);
   const [consultorTexto, setConsultorTexto] = useState("");
+  const [consultorAviso, setConsultorAviso] = useState("");
   const consultorReqId = useRef(0);
   const consultorHistorico = useRef([]);
 
@@ -1619,7 +1620,7 @@ export default function BussolaEducacaoDeInvestimentos() {
   // Pergunta pra IA (função /api/assistente). Se falhar por qualquer motivo, devolve null e o app usa as respostas prontas.
   async function perguntarParaIA(pergunta) {
     const controle = new AbortController();
-    const timer = setTimeout(() => controle.abort(), 12000);
+    const timer = setTimeout(() => controle.abort(), 15000);
     try {
       const r = await fetch("/api/assistente", {
         method: "POST",
@@ -1627,14 +1628,28 @@ export default function BussolaEducacaoDeInvestimentos() {
         signal: controle.signal,
         body: JSON.stringify({ pergunta, contexto: montarContextoIA(), historico: consultorHistorico.current }),
       });
-      if (!r.ok) return null;
-      const dados = await r.json();
-      return typeof dados.resposta === "string" && dados.resposta.trim() ? dados.resposta.trim() : null;
-    } catch {
-      return null;
+      let dados = null;
+      try { dados = await r.json(); } catch { /* resposta não era JSON */ }
+      if (!r.ok) return { resposta: null, codigo: (dados && dados.codigo) || `http_${r.status}` };
+      if (dados && typeof dados.resposta === "string" && dados.resposta.trim()) return { resposta: dados.resposta.trim(), codigo: "" };
+      return { resposta: null, codigo: "resposta_invalida" };
+    } catch (e) {
+      return { resposta: null, codigo: e && e.name === "AbortError" ? "timeout_app" : "sem_conexao" };
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  // Em celulares (principalmente iPhone), a voz só toca se tiver sido "liberada" por um toque do usuário.
+  // Esse toque silencioso libera a voz pra quando a resposta chegar, mesmo que demore alguns segundos.
+  function liberarVozDoNavegador() {
+    try {
+      if ("speechSynthesis" in window) {
+        const u = new SpeechSynthesisUtterance("");
+        u.volume = 0;
+        window.speechSynthesis.speak(u);
+      }
+    } catch { /* sem problema */ }
   }
 
   function guardarNoHistorico(pergunta, resposta) {
@@ -1646,6 +1661,7 @@ export default function BussolaEducacaoDeInvestimentos() {
     const meuId = ++consultorReqId.current;
     setConsultorQuestion(transcript);
     setConsultorPensando(false);
+    setConsultorAviso("");
 
     const comando = detectarComandoDeRegistro(transcript);
     let response;
@@ -1674,10 +1690,15 @@ export default function BussolaEducacaoDeInvestimentos() {
       } else {
         setConsultorResponse("");
         setConsultorPensando(true);
-        const respostaIA = await perguntarParaIA(transcript);
+        const resultadoIA = await perguntarParaIA(transcript);
         if (meuId !== consultorReqId.current) return; // chegou uma pergunta mais nova
         setConsultorPensando(false);
-        response = respostaIA || buildConsultorResponse(transcript);
+        if (resultadoIA.resposta) {
+          response = resultadoIA.resposta;
+        } else {
+          response = buildConsultorResponse(transcript);
+          setConsultorAviso(`Resposta automática — a IA não respondeu agora (código: ${resultadoIA.codigo}).`);
+        }
       }
     }
 
@@ -1689,11 +1710,13 @@ export default function BussolaEducacaoDeInvestimentos() {
   function enviarPerguntaDigitada() {
     const texto = consultorTexto.trim();
     if (!texto) return;
+    liberarVozDoNavegador();
     setConsultorTexto("");
     processarPerguntaConsultor(texto);
   }
 
   function startVoiceCaptureConsultor() {
+    liberarVozDoNavegador();
     iniciarReconhecimentoDeVoz({
       onStart: () => setIsListeningConsultor(true),
       onStop: () => setIsListeningConsultor(false),
@@ -2749,6 +2772,7 @@ export default function BussolaEducacaoDeInvestimentos() {
                 <Volume2 size={14} color="var(--gold)" className="shrink-0 mt-0.5" />
                 <p className="text-sm leading-relaxed" style={{ color: "var(--paper)" }}>{consultorPensando ? "A Zaya está pensando..." : consultorResponse}</p>
               </div>
+              {consultorAviso && !consultorPensando && <p className="text-[10px] mt-2" style={{ color: "var(--rust)" }}>{consultorAviso}</p>}
             </div>
           )}
 
@@ -5275,6 +5299,7 @@ export default function BussolaEducacaoDeInvestimentos() {
                   <Volume2 size={14} color="var(--gold)" className="shrink-0 mt-0.5" />
                   <p className="text-sm leading-relaxed" style={{ color: "var(--paper)" }}>{consultorPensando ? "A Zaya está pensando..." : consultorResponse}</p>
                 </div>
+                {consultorAviso && !consultorPensando && <p className="text-[10px] mt-2" style={{ color: "var(--rust)" }}>{consultorAviso}</p>}
               </div>
             )}
           </div>
