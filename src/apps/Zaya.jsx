@@ -932,6 +932,24 @@ function AssetInfoBlock({ tabKey, show, onToggle }) {
   );
 }
 
+// Decide se a fala é uma PERGUNTA/conversa (vai pra IA) e não um pedido de registro de gasto ou receita.
+// Perguntas nunca viram registro, a não ser que tenham um verbo explícito de anotar ("anota", "registra"...).
+// (usa limites de palavra que entendem acentos: o \b do JavaScript trata "ç" e "ã" como fim de palavra)
+const LIM_INI = "(?<![\\p{L}\\d])";
+const LIM_FIM = "(?![\\p{L}\\d])";
+const palavraRegex = (alternativas) => new RegExp(LIM_INI + "(?:" + alternativas + ")" + LIM_FIM, "u");
+const REGEX_VERBO_REGISTRO = palavraRegex("registra\\p{L}*|anota\\p{L}*|acrescenta\\p{L}*|adiciona\\p{L}*|lan[çc]a\\p{L}*|inclui\\p{L}*|colo[cq]\\p{L}*");
+const REGEX_MARCA_PERGUNTA = palavraRegex("como|qual|quais|quando|onde|por que|o que|quanto|quantos|quantas|existe|funç[ãa]o|funções|funciona\\p{L}*|explica\\p{L}*|orienta\\p{L}*|ajuda\\p{L}*|me fal\\p{L}+|fale mais|me conta|conta pra mim|deveria|seria|ser[áa]|tem uma|tem alguma|dúvida|duvida|entender");
+const REGEX_VERBO_MOVIMENTO = palavraRegex("gastei|comprei|paguei|recebi|ganhei|gastar|comprar|pagar");
+
+function pareceUmaPergunta(texto) {
+  const q = texto.toLowerCase();
+  if (REGEX_VERBO_REGISTRO.test(q)) return false;
+  const palavras = q.trim().split(/\s+/).filter(Boolean).length;
+  // frase muito longa sem verbo de gasto/entrada também é conversa, não registro
+  return q.includes("?") || REGEX_MARCA_PERGUNTA.test(q) || (palavras > 22 && !REGEX_VERBO_MOVIMENTO.test(q));
+}
+
 export default function BussolaEducacaoDeInvestimentos() {
   const [market, setMarket] = useState("Todos");
   const [profileKey, setProfileKey] = useState("moderado");
@@ -1482,7 +1500,7 @@ export default function BussolaEducacaoDeInvestimentos() {
         return `Antes de investir esse valor, uma dica importante pro seu momento: você ainda tem dívida com juro alto rolando. Nenhum investimento paga um juro de cartão ou cheque especial — o melhor destino desse dinheiro agora é quitar essa dívida primeiro. Depois que isso estiver resolvido, aí sim eu te ajudo com a divisão certa pra investir.`;
       }
 
-      const alocacao = computeAllocation(profileKey, valorParaInvestir);
+      const alocacao = computeAllocation(profileKey, valorParaInvestir).pct;
       const partes = Object.keys(ASSET_CLASS_META)
         .filter((k) => alocacao[k] > 0)
         .map((k) => `${alocacao[k]}% em ${ASSET_CLASS_META[k].label}`)
@@ -1637,8 +1655,9 @@ export default function BussolaEducacaoDeInvestimentos() {
       `Perfil de investidor: ${profile.label}`,
       `Renda mensal: ${brl(rendaMensal)}`,
       `Custos fixos do mês: ${brl(totalCustosFixos)}`,
+      `Renda por tipo: fixa ${brl(rendaFixa)}, variável ${brl(rendaVariavel)}, extra ${brl(rendaExtra)}`,
       `Sobra mensal (renda menos custos fixos): ${brl(sobraMensal)}`,
-      `Gastos variáveis e extras já registrados no mês: ${brl(totalGastoVariavelMes)}`,
+      `Gastos já registrados no mês: variáveis ${brl(totalCustosVariaveis)}, extras ${brl(totalCustosExtras)}`,
       `Saldo disponível do mês: ${brl(saldoDisponivelMes)}`,
       `Orçamento de hoje: ${brl(orcamentoDiario)} (faltam ${diasRestantes} dias no mês)`,
       `Conta corrente: ${brl(contaCorrente)}; em espécie: ${brl(saldoEspecie)}; poupança: ${brl(saldoPoupanca)}; investido: ${brl(totalInvestido)}`,
@@ -1647,11 +1666,21 @@ export default function BussolaEducacaoDeInvestimentos() {
         : "Dívidas: nenhuma cadastrada",
       `Reserva de emergência: ${brl(reservaAtual)} de uma meta de ${brl(metaReserva)} (${progressoReserva.toFixed(0)}%)`,
     ];
+    const contasUrgentes = custosFixos.filter((c) => !c.pago && statusVencimento(c.diaVencimento)?.urgente);
+    if (contasUrgentes.length > 0) linhas.push(`Contas fixas vencendo ou em atraso: ${contasUrgentes.map((c) => c.nome).join(", ")}`);
+    if (metaFixas !== null || metaVariavel !== null || metaExtra !== null) {
+      linhas.push(`Planejamento do mês (metas de gasto): fixas ${brl(metaFixas)}, variáveis ${brl(metaVariavel)}, extras ${brl(metaExtra)}`);
+    }
+    if (reservaMensalValor !== null) {
+      linhas.push(`Compromisso mensal da reserva: ${brl(reservaMensalValor)} até o dia ${reservaMensalDia}${reservaMensalPaga ? " (já depositado)" : " (ainda não depositado)"}`);
+    }
+    if (deficitAtivo) linhas.push("Situação: a renda está menor que os custos fixos (déficit); o Guia da Prosperidade está em alerta");
+    else if (orcamentoApertado) linhas.push("Situação: orçamento apertado (sobra menor que 10% dos custos fixos)");
     if (objetivos.length > 0) {
       linhas.push("Objetivos: " + objetivos.map((o) => `${o.nome} (meta ${brl(o.valorAlvo)}, já tem ${brl(o.valorAtual)}, prazo ${o.prazoMeses || "?"} meses)`).join("; "));
     }
     if (sobraMensal > 0 && !temDividaCara) {
-      const aloc = computeAllocation(profileKey, sobraMensal);
+      const aloc = computeAllocation(profileKey, sobraMensal).pct;
       const partes = Object.keys(ASSET_CLASS_META).filter((k) => aloc[k] > 0).map((k) => `${aloc[k]}% em ${ASSET_CLASS_META[k].label}`).join(", ");
       linhas.push(`Divisão educativa sugerida para a sobra mensal, pelo perfil: ${partes}`);
     }
@@ -1704,7 +1733,10 @@ export default function BussolaEducacaoDeInvestimentos() {
     setConsultorPensando(false);
     setConsultorAviso("");
 
-    const comando = detectarComandoDeRegistro(transcript);
+    // perguntas vão pra IA; só pedidos de registro viram lançamento
+    let comando = pareceUmaPergunta(transcript) ? null : detectarComandoDeRegistro(transcript);
+    // frase longa que não deu pra entender como registro é conversa, não erro de registro
+    if (comando && (comando.tipo === "erro_despesa" || comando.tipo === "erro_receita") && transcript.trim().split(/\s+/).length > 14) comando = null;
     let response;
     if (comando && comando.tipo === "fixo") {
       setCustosFixos((prev) => [...prev, { id: Date.now(), nome: comando.parsed.nome, valor: comando.parsed.valor, diaVencimento: null, pago: false }]);
@@ -1828,7 +1860,7 @@ export default function BussolaEducacaoDeInvestimentos() {
 
             <AccordionItem id="rumo" title="Você sabia que aqui dentro você tem uma parceira? A Zaya Assistente? Aprenda como ela funciona" isOpen={welcomeSection === "rumo"} onToggle={setWelcomeSection}>
               <p className="text-xs leading-relaxed" style={{ color: "var(--paper)" }}>
-                Ela é sua agente financeira de bolso — está sempre disponível pra você no <strong style={{ color: "var(--gold)" }}>botão flutuante no canto da tela</strong>, em qualquer parte do app. É só clicar e falar. Ela tira suas dúvidas do dia a dia antes de gastar, explica qualquer função do aplicativo, e também registra suas despesas e receitas por voz. Tá na correria e não consegue digitar? Pede pra ela por voz que ela registra a informação. Você só precisa confirmar depois.
+                Ela é sua agente financeira de bolso — está sempre disponível pra você no <strong style={{ color: "var(--gold)" }}>botão flutuante no canto da tela</strong>, em qualquer parte do app. É só clicar e falar. Ela tira suas dúvidas do dia a dia antes de gastar, explica qualquer função do aplicativo, e também registra suas despesas e receitas por voz. Tá na correria e não consegue digitar? Pede pra ela por voz que ela registra a informação na hora. Se ficar diferente do que você queria, é só editar ou apagar em Receitas ou Despesas.
               </p>
               <p className="text-xs leading-relaxed mt-2" style={{ color: "var(--paper)" }}>
                 Pra registrar um gasto certinho, fale nessa ordem: <strong style={{ color: "var(--gold)" }}>categoria → "gastei" → valor → com o quê</strong>. Exemplo: <em>"Despesa variável, acabei de gastar 250 reais e 37 centavos no supermercado."</em>
@@ -1840,7 +1872,7 @@ export default function BussolaEducacaoDeInvestimentos() {
                 Bora com o pé direito: a primeira coisa que você precisa fazer pra organizar sua vida financeira é começar pelo <strong style={{ color: "var(--gold)" }}>Vida Financeira</strong>. Ali dentro você vai:
               </p>
               <ul className="space-y-1.5 text-xs leading-relaxed mb-2" style={{ color: "var(--paper-dim)" }}>
-                <li>🔗 <strong style={{ color: "var(--paper)" }}>Conectar suas contas bancárias</strong> ao aplicativo — e, se você tiver conta em alguma corretora de investimento, também dá pra adicionar, pra acompanhar tudo em tempo real</li>
+                <li>🔗 <strong style={{ color: "var(--paper)" }}>Preencher seu Saldo Disponível</strong> — conta corrente, dinheiro em espécie e poupança, pra ter o retrato de quanto você tem hoje (a conexão automática com o banco chega numa versão futura)</li>
               </ul>
               <p className="text-xs leading-relaxed mb-2" style={{ color: "var(--paper)" }}>
                 Agora que você já estruturou, vamos pra parte das despesas:
