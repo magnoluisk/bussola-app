@@ -1091,9 +1091,9 @@ export default function BussolaEducacaoDeInvestimentos() {
   const [saldoEspecie, setSaldoEspecie] = useState(0);
   const [saldoPoupanca, setSaldoPoupanca] = useState(0);
   const [showSaldo, setShowSaldo] = useState(true);
-  const [rendaFixaItens, setRendaFixaItens] = useState([{ id: 1, nome: "Salário", valor: 3500 }]);
-  const [rendaVariavelItens, setRendaVariavelItens] = useState([{ id: 1, nome: "Comissão/Bônus", valor: 700 }]);
-  const [rendaExtraItens, setRendaExtraItens] = useState([{ id: 1, nome: "Freela/Bico", valor: 300 }]);
+  const [rendaFixaItens, setRendaFixaItens] = useState([]);
+  const [rendaVariavelItens, setRendaVariavelItens] = useState([]);
+  const [rendaExtraItens, setRendaExtraItens] = useState([]);
   const [novaRendaFixa, setNovaRendaFixa] = useState({ nome: "", valor: "" });
   const [novaRendaVariavel, setNovaRendaVariavel] = useState({ nome: "", valor: "" });
   const [novaRendaExtra, setNovaRendaExtra] = useState({ nome: "", valor: "" });
@@ -1101,11 +1101,7 @@ export default function BussolaEducacaoDeInvestimentos() {
   const rendaVariavel = rendaVariavelItens.reduce((s, i) => s + i.valor, 0);
   const rendaExtra = rendaExtraItens.reduce((s, i) => s + i.valor, 0);
   const rendaMensal = rendaFixa + rendaVariavel + rendaExtra;
-  const [custosFixos, setCustosFixos] = useState([
-    { id: 1, nome: "Aluguel/Financiamento", valor: 1200, diaVencimento: 5, pago: false },
-    { id: 2, nome: "Contas (luz, água, internet)", valor: 350, diaVencimento: 10, pago: false },
-    { id: 3, nome: "Transporte", valor: 300, diaVencimento: 15, pago: false },
-  ]);
+  const [custosFixos, setCustosFixos] = useState([]);
   const [novoCustoFixo, setNovoCustoFixo] = useState({ nome: "", valor: "", diaVencimento: "" });
   const [editingCustoId, setEditingCustoId] = useState(null);
   const [editingCustoValor, setEditingCustoValor] = useState("");
